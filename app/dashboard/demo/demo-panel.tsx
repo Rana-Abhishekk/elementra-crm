@@ -21,6 +21,7 @@ export function DemoPanel({ scenarios }: { scenarios: { id: number; title: strin
       setBusy(null);
       if (!res.ok) return void toast.error(res.error);
       setLast(res.decision);
+      window.dispatchEvent(new Event("elementra:poll"));
       toast.success(res.decision.toast, { description: `${res.decision.refCode} · ${res.decision.name}` });
     });
   }

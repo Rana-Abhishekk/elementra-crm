@@ -419,7 +419,7 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
         templateCode: locationStatus === "NEEDS_LOCATION" ? "welcome_no_location" : "welcome_enquiry",
         dedupeKey: `WELCOME:${lead.id}`,
         // Back-dated leads (night scenario, imports) get the welcome right after receipt; live ones "now"
-        createdAt: now.getTime() - receivedAt.getTime() > 60_000 ? new Date(receivedAt.getTime() + 4000) : now,
+        createdAt: now.getTime() - receivedAt.getTime() > 60_000 ? new Date(receivedAt.getTime() + 4000) : new Date(),
       });
     }
   }

@@ -98,3 +98,18 @@ describe("Meta webhook signature", () => {
     expect(verifyMetaSignature(body, null, "secret")).toBe(false);
   });
 });
+
+import { mapSheetRow, mapSheetSource } from "./sheets";
+
+describe("Google Sheet row mapper", () => {
+  it("maps the client's source values, typo included", () => {
+    expect(mapSheetSource("Instagram Paid Media Paid Media")).toBe("INSTAGRAM_PAID");
+    expect(mapSheetSource("Walkins")).toBe("WALK_IN");
+    expect(mapSheetSource("Repeat purchase")).toBe("REPEAT_PURCHASE");
+  });
+
+  it("maps a Sales Pipeline row", () => {
+    const r = mapSheetRow({ "First Name": "Ira", "Last Name": "Sawant", Phone: "9000060010", "Site Address": "Goregoan east", "Product/Solution": "Kitchen, Wardrobes", Source: "Whatsapp", Status: "12.Closed Lost - No response" });
+    expect(r).toMatchObject({ firstName: "Ira", channel: "GOOGLE_SHEET", source: "WHATSAPP", products: ["KITCHEN", "WARDROBES"], legacyStatus: { stage: "CLOSED_LOST", lostReason: "NO_RESPONSE" } });
+  });
+});

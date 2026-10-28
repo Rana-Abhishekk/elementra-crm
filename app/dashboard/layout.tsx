@@ -3,6 +3,7 @@ import { getOptionalUser } from "@/lib/auth";
 import { isDemoMode } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/shell/app-shell";
+import { NotificationBell } from "@/components/shell/notification-bell";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const sessionUser = await getOptionalUser();
@@ -17,6 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <AppShell
       user={{ name: user.name, email: user.email, role: user.role, branchName: user.branch?.name.replace(" Experience Centre", "") ?? null }}
       demoMode={isDemoMode()}
+      bell={<NotificationBell />}
     >
       {children}
     </AppShell>
