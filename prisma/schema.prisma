@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum DealStage {
+  LEAD
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum ActivityType {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+  TASK
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(MEMBER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedContacts  Contact[]
+  ownedDeals     Deal[]
+  activities     Activity[]
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  domain    String?
+  industry  String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts Contact[]
+  deals    Deal[]
+
+  @@index([name])
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String?
+  email     String?
+  phone     String?
+  title     String?
+  companyId String?
+  ownerId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner      User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  deals      Deal[]
+  activities Activity[]
+
+  @@index([companyId])
+  @@index([email])
+}
+
+model Deal {
+  id         String    @id @default(cuid())
+  title      String
+  // Amount in the smallest currency unit (paise), so no float rounding
+  amount     Int       @default(0)
+  currency   String    @default("INR")
+  stage      DealStage @default(LEAD)
+  closeDate  DateTime?
+  companyId  String?
+  contactId  String?
+  ownerId    String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  company    Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact    Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner      User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  activities Activity[]
+
+  @@index([stage])
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  type      ActivityType @default(NOTE)
+  body      String
+  dueAt     DateTime?
+  doneAt    DateTime?
+  contactId String?
+  dealId    String?
+  userId    String?
+  createdAt DateTime     @default(now())
+
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  deal    Deal?    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([contactId])
+  @@index([dealId])
+}
