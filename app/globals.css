@@ -32,7 +32,8 @@
 }
 
 .card {
-  @apply rounded-xl border border-slate-200 bg-white;
+  /* min-w-0: cards inside grids must not grow to fit truncated text */
+  @apply min-w-0 rounded-xl border border-slate-200 bg-white;
 }
 
 .label {

@@ -20,6 +20,7 @@ interface Item {
 }
 
 const POLL_MS = 15_000;
+const MAX_TOASTS = 3;
 const URGENT = new Set(["SLA_BREACH", "ESCALATION"]);
 
 export function NotificationBell() {
@@ -37,10 +38,13 @@ export function NotificationBell() {
       const data = (await res.json()) as { unread: number; items: Item[] };
       // First load just remembers what's there; afterwards new unread items pop a toast
       if (seen.current) {
-        for (const n of data.items.filter((i) => !i.readAt && !seen.current!.has(i.id)).reverse()) {
+        const fresh = data.items.filter((i) => !i.readAt && !seen.current!.has(i.id));
+        // A rule run can create many at once — show a few, summarise the rest
+        for (const n of fresh.slice(0, MAX_TOASTS).reverse()) {
           const show = URGENT.has(n.type) ? toast.warning : toast;
           show(n.title, { description: n.body ?? undefined, action: n.href ? { label: "Open", onClick: () => router.push(n.href!) } : undefined });
         }
+        if (fresh.length > MAX_TOASTS) toast(`+${fresh.length - MAX_TOASTS} more notifications`, { description: "Open the bell to see them all." });
       }
       seen.current = new Set(data.items.map((i) => i.id));
       setUnread(data.unread);

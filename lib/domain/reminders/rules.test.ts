@@ -66,14 +66,16 @@ describe("R1 / R1b first-contact SLA", () => {
   it("fires R1 once after 60 working minutes", () => {
     const s = snap({ leads: [lead({ assignedAt: h(2) })] });
     const out = run(s);
-    expect(rules(out)).toEqual(["R1:notify", "R1:timeline"]);
+    expect(rules(out)).toEqual(["R1:notify", "R1:notify", "R1:timeline"]);
     expect(out[0]).toMatchObject({ userId: "ishita", dedupeKey: "R1:L1", title: "SLA breached: EL-1042 not contacted in 1 h" });
+    expect(out[1]).toMatchObject({ userId: "owner", dedupeKey: "R1:L1:owner" });
     keysAreStable(s);
   });
 
   it("escalates to the branch manager after 4 working hours", () => {
     const out = run(snap({ leads: [lead({ assignedAt: h(4.5) })] }));
     expect(out.filter((i) => i.rule === "R1b").map((i) => i.kind)).toEqual(["task", "notify", "timeline"]);
+    expect(out.filter((i) => i.rule === "R1" && i.kind === "notify")).toHaveLength(2);
     expect(out.find((i) => i.rule === "R1b" && i.kind === "task")).toMatchObject({ assigneeId: "kabir", type: "ESCALATION" });
   });
 

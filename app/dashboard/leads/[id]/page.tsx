@@ -226,6 +226,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
 
         {/* Left: details + routing */}
         <div className="space-y-6 lg:order-1">
+          {routing && <RoutingCard data={routing} />}
           <DetailsPanel
             editable={editable}
             lead={{
@@ -258,7 +259,6 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
             architects={architects.map((a) => ({ id: a.id, label: `${a.firstName} ${a.lastName ?? ""} · ${a.company?.name ?? ""}` }))}
             valueLabel={formatLakh(lead.orderValueInr ?? lead.estimatedValueInr)}
           />
-          {routing && <RoutingCard data={routing} />}
         </div>
       </div>
     </div>

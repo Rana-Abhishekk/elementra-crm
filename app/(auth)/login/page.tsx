@@ -3,6 +3,9 @@ import { isDemoMode } from "@/lib/access";
 import { QUICK_LOGINS } from "@/lib/demo/reference";
 import { LoginForm } from "./login-form";
 
+// Reads DEMO_MODE at request time (quick-login chips), so the flag works without a rebuild
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   const demo = isDemoMode();
   return (

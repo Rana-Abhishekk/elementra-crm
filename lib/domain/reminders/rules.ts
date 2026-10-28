@@ -126,6 +126,12 @@ export function evaluateRules(snap: Snapshot, settings: Settings, now: Date): In
           leadId: l.id,
           href: href(l.id),
         });
+        // The business owner gets a copy too (same switch as new-lead copies)
+        if (settings.notifications.ownerCopiesNewLeads) {
+          for (const o of owners.filter((x) => x.id !== l.ownerId)) {
+            out.push({ kind: "notify", rule: "R1", dedupeKey: `R1:${l.id}:${o.id}`, userId: o.id, type: "SLA_BREACH", title: `SLA breached: ${l.refCode} ${name(l)} not contacted in ${fmtMins(settings.sla.firstContactMins)}`, leadId: l.id, href: href(l.id) });
+          }
+        }
         out.push({ kind: "timeline", rule: "R1", dedupeKey: `R1:${l.id}`, leadId: l.id, body: `R1 · First-contact SLA breached (${fmtMins(settings.sla.firstContactMins)} working time) — owner alerted.` });
       }
       if (!off.has("R1b") && mins > settings.sla.escalateMins) {
