@@ -18,7 +18,8 @@
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio --port 5611",
     "postinstall": "prisma generate",
-    "status": "tsx scripts/gen-status.ts"
+    "status": "tsx scripts/gen-status.ts",
+    "demo:check": "tsx --env-file=.env scripts/check-scenarios.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

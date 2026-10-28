@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import type { LocationStatus, Prisma, Role } from "@prisma/client";
 import { requireUser, type SessionUser } from "@/lib/auth";
 
@@ -16,6 +17,13 @@ export class ForbiddenError extends Error {
 export async function requireRole(...roles: Role[]): Promise<SessionUser> {
   const user = await requireUser();
   if (!roles.includes(user.role)) throw new ForbiddenError();
+  return user;
+}
+
+/** For pages: send users without the role back to their start page instead of throwing. */
+export async function requirePageRole(...roles: Role[]): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!roles.includes(user.role)) redirect("/dashboard?denied=1");
   return user;
 }
 

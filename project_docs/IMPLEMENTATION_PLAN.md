@@ -312,7 +312,7 @@ The spec's `Activity` (lead timeline) and the existing `Activity` (contact/deal 
 |---|---|---|
 | 0. Audit & setup | ✅ | Baseline commit; `docker-compose.yml` (5610); scripts; `.env.example`; `init` migration; vitest smoke test; README + CLAUDE.md facts. Verified: `db:up` → `db:migrate` → `db:seed` → `dev` on :4610, login + Overview/Contacts/Companies/Deals return 200. |
 | 1. Foundation | ✅ | Migration `crm_demo_foundation` (hand-edited Role mapping, verified MEMBER→SALES_REP); JWT carries role + branchId (5-min refresh); `lib/access.ts`; settings module; idempotent base seed (5 branches, 6 pincode rules, 89 localities, 13 demo users, 6 architects, 11 templates, settings); navy/gold theme; grouped role-filtered nav + mobile drawer; FeatureBadge; `lib/features.ts` + Build Status + `npm run status`; quick-login chips. Removed `sign-out-button.tsx` (sign-out moved into the shell). |
-| 2. The brain | ⏳ | |
+| 2. The brain | ✅ | `phone`, `time`, `geo/*` (normalise, Jaro-Winkler, resolve, Google stub), `routing/decide` + `assign` (explanation lines built in place — no separate `explain.ts`), `leads/ingest` + `reroute`, messaging simulator + Cloud API stub, Meta mappers + webhook (verify, signature, simulated payloads, idempotent retries), `/api/public/leads`, `/enquire`, Demo panel with the 10 scenarios + random burst. `npm run demo:check` asserts all 10 scenarios against the DB. Ref codes from a Postgres sequence (`crm_lead_ref_seq` migration). Region keywords are checked before fuzzy matching ("Jaipur, Rajasthan" fuzzy-matched Raipur otherwise). Pages use `requirePageRole()` (redirect) rather than throwing. |
 | 3. Leads workspace | ⏳ | |
 | 4. Follow-up engine | ⏳ | |
 | 5. Owner view | ⏳ | |
