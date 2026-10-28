@@ -38,7 +38,8 @@ export async function rerouteLead(
 
   let decision = decideBranch(loc, ctx.branches, ctx.rules, "DIRECT");
   let rule: RoutingRule = decision.rule;
-  const explanation = [...decision.explanation];
+  // A manager's explicit choice replaces the "parked in the queue" conclusion
+  const explanation = decision.explanation.filter((l) => !(input.forceBranchId && l.startsWith("Outside the service area")));
 
   if (input.forceBranchId) {
     const forced = ctx.branches.find((b) => b.id === input.forceBranchId);
@@ -134,7 +135,7 @@ export async function rerouteLead(
           ].join("\n"),
           userId: actorId,
           meta: { userId: assignee.userId },
-          createdAt: new Date(now.getTime() + 1000),
+          createdAt: new Date(now.getTime() + 10),
         },
       });
       // Queue tasks are done; the new owner gets a call task

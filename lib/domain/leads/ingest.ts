@@ -305,8 +305,8 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
         },
       });
 
-      // Timeline (explainability): received → routed → assigned, a second apart so the order is stable
-      const at = (s: number) => new Date(receivedAt.getTime() + s * 1000);
+      // Timeline (explainability): received → routed → assigned, 10 ms apart so the order is stable
+      const at = (step: number) => new Date(receivedAt.getTime() + step * 10);
       const campaign = input.campaignName ? ` · campaign "${input.campaignName}"` : "";
       const timeline: Prisma.ActivityCreateManyInput[] = [
         {
