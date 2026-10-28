@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: elementra-crm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: elementra
+      POSTGRES_PASSWORD: elementra_dev
+      POSTGRES_DB: elementra_crm
+    ports:
+      - "5610:5432"
+    volumes:
+      - elementra_crm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elementra -d elementra_crm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  elementra_crm_pgdata:
