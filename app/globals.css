@@ -44,3 +44,9 @@
   @apply h-full w-full rounded-xl;
   z-index: 0;
 }
+
+/* Tailwind preflight sets img max-width/height, which breaks Leaflet tiles (seams between tiles) */
+.leaflet-container img {
+  max-width: none !important;
+  max-height: none !important;
+}

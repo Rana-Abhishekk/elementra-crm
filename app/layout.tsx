@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en-IN" className={`h-full ${inter.variable}`}>
+    <html lang="en-IN" className={`h-full ${inter.variable}`} suppressHydrationWarning>
       <body className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
         <AuthProvider>{children}</AuthProvider>
         <Toaster richColors position="top-right" closeButton />

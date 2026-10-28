@@ -55,3 +55,18 @@ export async function simulateSheetRowAction(): Promise<{ ok: true; message: str
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
   }
 }
+
+export async function resetDemoAction(): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    await guard();
+    const { clearDemoData, generateDemoHistory } = await import("@/lib/demo/generate");
+    const { runReminderEngine } = await import("@/lib/domain/reminders/engine");
+    await clearDemoData();
+    await generateDemoHistory();
+    await runReminderEngine();
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Demo data reset — 180 fresh leads, dated relative to now." };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
