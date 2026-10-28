@@ -2,14 +2,45 @@
 
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --color-brand: #4f46e5;
-  --color-brand-dark: #4338ca;
+  /* Elementra: deep navy + warm gold (spec §16) */
+  --color-brand: #0b1f3a;
+  --color-brand-dark: #07152a;
+  --color-brand-light: #16345e;
+  --color-gold: #c9a227;
+  --color-gold-light: #f6edd0;
+  --color-ink: #0f172a;
 }
 
 .field {
-  @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
+  @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-slate-50 disabled:text-slate-500;
 }
 
 .btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60;
+  @apply inline-flex items-center justify-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-light disabled:opacity-60;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60;
+}
+
+.btn-gold {
+  @apply inline-flex items-center justify-center gap-2 rounded-md bg-gold px-4 py-2 text-sm font-semibold text-brand hover:brightness-105 disabled:opacity-60;
+}
+
+.card {
+  @apply rounded-xl border border-slate-200 bg-white;
+}
+
+.label {
+  @apply mb-1 block text-xs font-medium text-slate-500;
+}
+
+/* Leaflet needs a sized container */
+.leaflet-container {
+  @apply h-full w-full rounded-xl;
+  z-index: 0;
 }

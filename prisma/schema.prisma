@@ -12,8 +12,11 @@ datasource db {
 // ==========================================
 
 enum Role {
+  OWNER
   ADMIN
-  MEMBER
+  SALES_MANAGER
+  PRESALES
+  SALES_REP
 }
 
 enum DealStage {
@@ -31,34 +34,241 @@ enum ActivityType {
   EMAIL
   MEETING
   TASK
+  WHATSAPP
+  SHOWROOM_VISIT
+  STAGE_CHANGE
+  ASSIGNMENT
+  HANDOVER
+  FOLLOW_UP_SET
+  MESSAGE_SENT
+  APPOINTMENT
+  ROUTING
+  SYSTEM
+}
+
+enum BranchKind {
+  EXPERIENCE_CENTRE
+  ONLINE_DESK
+}
+
+enum AssignmentStrategy {
+  ROUND_ROBIN
+  LEAST_OPEN_LEADS
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  DISCOVERY_MEETING
+  QUOTATION_REQUESTED
+  QUOTATION_SENT
+  NEGOTIATION
+  TOKEN_RECEIVED
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum LostReason {
+  BUDGET
+  COMPETITOR
+  TIMELINE
+  NO_RESPONSE
+  ON_HOLD
+  OTHERS
+}
+
+// Marketing source = the client's own dropdown values (+ WEBSITE)
+enum LeadSource {
+  INSTAGRAM_PAID
+  INSTAGRAM_ORGANIC
+  FACEBOOK
+  GOOGLE
+  WHATSAPP
+  LINKEDIN
+  REFERENCE
+  REPEAT_PURCHASE
+  WALK_IN
+  CALL
+  WEBSITE
+}
+
+// Technical intake channel = how the record entered the system
+enum IntakeChannel {
+  META_LEAD_AD
+  WEBSITE_FORM
+  WHATSAPP
+  GOOGLE_SHEET
+  CSV_IMPORT
+  MANUAL
+}
+
+enum Product {
+  KITCHEN
+  WARDROBES
+  FURNITURE
+  APPLIANCES
+  BEDS
+  OTHERS
+}
+
+enum Priority {
+  HOT
+  WARM
+  COLD
+}
+
+enum LocationStatus {
+  RESOLVED
+  NEEDS_LOCATION
+  OUT_OF_AREA
+}
+
+enum GeoMethod {
+  PINCODE
+  ALIAS
+  FUZZY
+  GOOGLE
+  MANUAL
+  NONE
+}
+
+enum RoutingRule {
+  PINCODE_RULE
+  NEAREST_IN_RADIUS
+  OUT_OF_AREA
+  NEEDS_LOCATION
+  VIA_PRESALES
+  RETURNING_SAME_OWNER
+  MANUAL
+}
+
+enum CallOutcome {
+  CONNECTED
+  NO_ANSWER
+  BUSY
+  SWITCHED_OFF
+  WRONG_NUMBER
+  CALLBACK_REQUESTED
+}
+
+enum TaskType {
+  FIRST_CALL
+  FOLLOW_UP
+  CAPTURE_LOCATION
+  APPOINTMENT_PREP
+  VISIT_OUTCOME
+  QUOTATION_FOLLOW_UP
+  REVIVE
+  ESCALATION
+  OUT_OF_AREA_REVIEW
+  OTHER
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  SNOOZED
+  CANCELLED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  VISITED
+  NO_SHOW
+  RESCHEDULED
+  CANCELLED
+}
+
+enum TemplateCategory {
+  UTILITY
+  MARKETING
+}
+
+enum TemplateStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum ContactKind {
+  CUSTOMER
+  ARCHITECT
+  OTHER
+}
+
+enum CompanyKind {
+  ARCHITECT_FIRM
+  BUILDER
+  VENDOR
+  OTHER
+}
+
+enum ProjectStage {
+  MEASUREMENT_REVERIFY
+  CIVIL_WORK
+  PRODUCTION_MEASUREMENT
+  ORDER_SENT_TO_FACTORY
+  MATERIAL_DELIVERED
+  INSTALLATION
+  CLEANING
+  HANDOVER
 }
 
 // ==========================================
-// MODELS
+// EXISTING MODELS (extended)
 // ==========================================
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(MEMBER)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String    @id @default(cuid())
+  name           String
+  email          String    @unique
+  passwordHash   String
+  role           Role      @default(SALES_REP)
+  phone          String?
+  branchId       String?
+  isActive       Boolean   @default(true)
+  receivesLeads  Boolean   @default(true)
+  onLeave        Boolean   @default(false)
+  onLeaveUntil   DateTime?
+  lastAssignedAt DateTime? // round-robin cursor
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  ownedContacts  Contact[]
-  ownedDeals     Deal[]
-  activities     Activity[]
+  branch             Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  ownedContacts      Contact[]
+  ownedDeals         Deal[]
+  activities         Activity[]
+  ownedLeads         Lead[]         @relation("LeadOwner")
+  handedOverLeads    Lead[]         @relation("LeadHandedOverBy")
+  tasks              Task[]         @relation("TaskAssignee")
+  hostedAppointments Appointment[]  @relation("AppointmentHost")
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  designedProjects   Project[]      @relation("ProjectDesigner")
+  supervisedProjects Project[]      @relation("ProjectSupervisor")
+
+  @@index([branchId])
 }
 
 model Company {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   name      String
+  kind      CompanyKind @default(OTHER)
   domain    String?
   industry  String?
   phone     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   contacts Contact[]
   deals    Deal[]
@@ -67,24 +277,29 @@ model Company {
 }
 
 model Contact {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
+  kind      ContactKind @default(CUSTOMER)
   firstName String
   lastName  String?
   email     String?
   phone     String?
+  phoneE164 String?     @db.VarChar(16)
   title     String?
   companyId String?
   ownerId   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
-  company    Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  owner      User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  deals      Deal[]
-  activities Activity[]
+  company         Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner           User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  deals           Deal[]
+  activities      Activity[]
+  leads           Lead[]     @relation("LeadContact")
+  influencedLeads Lead[]     @relation("LeadArchitect")
 
   @@index([companyId])
   @@index([email])
+  @@index([phoneE164])
 }
 
 model Deal {
@@ -98,32 +313,343 @@ model Deal {
   companyId  String?
   contactId  String?
   ownerId    String?
+  leadId     String?   @unique
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
   company    Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
   contact    Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
   owner      User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  lead       Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
   activities Activity[]
 
   @@index([stage])
 }
 
+// One timeline table for leads and for contacts/deals. userId = actor (null = system).
 model Activity {
-  id        String       @id @default(cuid())
-  type      ActivityType @default(NOTE)
-  body      String
-  dueAt     DateTime?
-  doneAt    DateTime?
-  contactId String?
-  dealId    String?
-  userId    String?
-  createdAt DateTime     @default(now())
+  id          String       @id @default(cuid())
+  type        ActivityType @default(NOTE)
+  callOutcome CallOutcome?
+  body        String
+  meta        Json?
+  dueAt       DateTime?
+  doneAt      DateTime?
+  leadId      String?
+  contactId   String?
+  dealId      String?
+  userId      String?
+  createdAt   DateTime     @default(now())
 
+  lead    Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
   deal    Deal?    @relation(fields: [dealId], references: [id], onDelete: Cascade)
   user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([contactId])
   @@index([dealId])
+  @@index([leadId, createdAt])
+}
+
+// ==========================================
+// CRM MODELS
+// ==========================================
+
+model Branch {
+  id                 String             @id @default(cuid())
+  code               String             @unique // WOR, AND, TAR, PUN, ONL
+  name               String
+  kind               BranchKind         @default(EXPERIENCE_CENTRE)
+  city               String
+  area               String?
+  lat                Float?
+  lng                Float?
+  serviceRadiusKm    Float              @default(25)
+  assignmentStrategy AssignmentStrategy @default(ROUND_ROBIN)
+  isActive           Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+
+  users        User[]
+  pincodeRules BranchPincode[]
+  leads        Lead[]
+  appointments Appointment[]
+  projects     Project[]
+}
+
+// Explicit "this pincode belongs to this branch" — wins over distance
+model BranchPincode {
+  id       String @id @default(cuid())
+  pincode  String @unique
+  label    String?
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+}
+
+// Local gazetteer (augmented by Google later)
+model Locality {
+  id      String   @id @default(cuid())
+  name    String
+  city    String
+  pincode String?
+  lat     Float
+  lng     Float
+  aliases String[]
+  leads   Lead[]
+
+  @@unique([name, city])
+  @@index([pincode])
+}
+
+model Lead {
+  id        String   @id @default(cuid())
+  refCode   String   @unique
+  contactId String?
+  contact   Contact? @relation("LeadContact", fields: [contactId], references: [id], onDelete: SetNull)
+
+  salutation   String?
+  firstName    String
+  lastName     String?
+  phoneE164    String? @db.VarChar(16)
+  altPhoneE164 String? @db.VarChar(16)
+  email        String?
+  language     String  @default("en")
+
+  siteAddressRaw String?
+  pincode        String?
+  localityId     String?
+  locality       Locality?      @relation(fields: [localityId], references: [id], onDelete: SetNull)
+  city           String?
+  lat            Float?
+  lng            Float?
+  geoMethod      GeoMethod      @default(NONE)
+  geoConfidence  Float?
+  locationStatus LocationStatus @default(NEEDS_LOCATION)
+
+  branchId       String?
+  branch         Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  ownerId        String?
+  owner          User?     @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  handedOverById String?
+  handedOverBy   User?     @relation("LeadHandedOverBy", fields: [handedOverById], references: [id], onDelete: SetNull)
+  handedOverAt   DateTime?
+  assignedAt     DateTime?
+
+  stage                  LeadStage   @default(NEW)
+  stageChangedAt         DateTime    @default(now())
+  lostReason             LostReason?
+  lostNote               String?
+  reviveAt               DateTime?
+  products               Product[]
+  priority               Priority    @default(WARM)
+  possessionDate         DateTime?
+  budgetNote             String?
+  estimatedValueInr      Int?
+  orderValueInr          Int?
+  architectId            String?
+  architect              Contact?    @relation("LeadArchitect", fields: [architectId], references: [id], onDelete: SetNull)
+  architectCommissionPct Float?
+
+  source        LeadSource
+  intakeChannel IntakeChannel
+  campaignName  String?
+  adsetName     String?
+  adName        String?
+  formName      String?
+  platform      String?
+  externalId    String?       @unique
+  rawPayload    Json?
+
+  nextFollowUpAt   DateTime?
+  lastActivityAt   DateTime  @default(now())
+  firstContactedAt DateTime?
+
+  duplicateOfId String?
+  duplicateOf   Lead?   @relation("LeadDuplicate", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    Lead[]  @relation("LeadDuplicate")
+  isReturning   Boolean @default(false)
+
+  activities       Activity[]
+  tasks            Task[]
+  appointments     Appointment[]
+  routingDecisions RoutingDecision[]
+  messages         OutboundMessage[]
+  project          Project?
+  deal             Deal?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, stage])
+  @@index([branchId, stage])
+  @@index([locationStatus])
+  @@index([nextFollowUpAt])
+  @@index([phoneE164])
+  @@index([createdAt])
+}
+
+model RoutingDecision {
+  id             String              @id @default(cuid())
+  leadId         String
+  lead           Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  inputText      String?
+  geoMethod      GeoMethod
+  geoConfidence  Float?
+  matchedLabel   String?
+  rule           RoutingRule
+  distanceKm     Float?
+  candidates     Json
+  chosenBranchId String?
+  chosenUserId   String?
+  strategy       AssignmentStrategy?
+  skipped        Json?
+  explanation    String[]
+  actorId        String?
+  createdAt      DateTime            @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+model Task {
+  id           String     @id @default(cuid())
+  leadId       String?
+  lead         Lead?      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assigneeId   String
+  assignee     User       @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+  type         TaskType
+  title        String
+  dueAt        DateTime
+  status       TaskStatus @default(OPEN)
+  ruleCode     String?
+  dedupeKey    String?    @unique
+  snoozedUntil DateTime?
+  completedAt  DateTime?
+  createdById  String?
+  createdAt    DateTime   @default(now())
+
+  @@index([assigneeId, status, dueAt])
+  @@index([leadId, status])
+}
+
+model Appointment {
+  id          String            @id @default(cuid())
+  leadId      String
+  lead        Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  branchId    String
+  branch      Branch            @relation(fields: [branchId], references: [id])
+  hostId      String?
+  host        User?             @relation("AppointmentHost", fields: [hostId], references: [id], onDelete: SetNull)
+  scheduledAt DateTime
+  durationMin Int               @default(60)
+  status      AppointmentStatus @default(SCHEDULED)
+  notes       String?
+  createdAt   DateTime          @default(now())
+
+  @@index([scheduledAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?
+  leadId    String?
+  href      String?
+  dedupeKey String?   @unique
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
+
+model MessageTemplate {
+  id        String           @id @default(cuid())
+  code      String
+  language  String
+  name      String
+  category  TemplateCategory
+  body      String
+  variables String[]
+  status    TemplateStatus   @default(DRAFT)
+  updatedAt DateTime         @updatedAt
+
+  @@unique([code, language])
+}
+
+model OutboundMessage {
+  id                String        @id @default(cuid())
+  leadId            String?
+  lead              Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  channel           String        @default("WHATSAPP")
+  direction         String        @default("OUT") // "OUT" | "IN" (simulated customer replies)
+  templateCode      String?
+  language          String        @default("en")
+  toPhone           String
+  body              String
+  status            MessageStatus @default(QUEUED)
+  provider          String        @default("SIMULATOR")
+  providerMessageId String?
+  error             String?
+  sentById          String?
+  dedupeKey         String?       @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([leadId, createdAt])
+  @@index([createdAt])
+}
+
+// Post-sale (Preview add-on)
+model Project {
+  id                 String       @id @default(cuid())
+  leadId             String       @unique
+  lead               Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  branchId           String
+  branch             Branch       @relation(fields: [branchId], references: [id])
+  designerId         String?
+  designer           User?        @relation("ProjectDesigner", fields: [designerId], references: [id], onDelete: SetNull)
+  supervisorId       String?
+  supervisor         User?        @relation("ProjectSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  stage              ProjectStage @default(MEASUREMENT_REVERIFY)
+  stageHistory       Json         @default("[]")
+  expectedHandoverAt DateTime?
+  handoverAt         DateTime?
+  warrantyEndsAt     DateTime?
+  createdAt          DateTime     @default(now())
+}
+
+model AppSetting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  summary    String
+  diff       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model ImportJob {
+  id          String   @id @default(cuid())
+  fileName    String
+  kind        String
+  totalRows   Int
+  created     Int
+  duplicates  Int
+  failed      Int
+  errors      Json?
+  createdById String
+  createdAt   DateTime @default(now())
 }
