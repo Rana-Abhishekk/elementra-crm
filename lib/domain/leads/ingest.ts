@@ -85,7 +85,8 @@ function channelPhrase(channel: IntakeChannel, platform: string | null) {
   return CHANNEL_LABEL[channel].toLowerCase();
 }
 
-export async function ingestLead(raw: IngestInput, opts: { actorId?: string | null; now?: Date } = {}): Promise<IngestResult> {
+/** `quiet`: backfills (CSV import) skip the welcome message and notifications. */
+export async function ingestLead(raw: IngestInput, opts: { actorId?: string | null; now?: Date; quiet?: boolean } = {}): Promise<IngestResult> {
   const parsed = ingestSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
   const input = parsed.data;
@@ -403,9 +404,9 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
       notes.push({ userId: uid, type: "NEW_LEAD", title: `New lead: ${lead.refCode} ${name}`, body: `→ ${branchLabel}${assignee?.name ? ` · ${assignee.name}` : ""}`, leadId: lead.id, href, dedupeKey: `NEW:${lead.id}:${uid}` });
     }
   }
-  await notify(notes);
+  if (!opts.quiet) await notify(notes);
 
-  if (lead.phoneE164) {
+  if (lead.phoneE164 && !opts.quiet) {
     if (locationStatus === "OUT_OF_AREA" && settings.routing.outOfAreaAction === "AUTO_REGRET") {
       await sendTemplate({ leadId: lead.id, templateCode: "out_of_area_regret", dedupeKey: `REGRET:${lead.id}` });
       await prisma.$transaction([
