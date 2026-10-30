@@ -2,42 +2,47 @@
 
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  /* Elementra: deep navy + warm gold (spec §16) */
-  --color-brand: #0b1f3a;
-  --color-brand-dark: #07152a;
-  --color-brand-light: #16345e;
-  --color-gold: #c9a227;
-  --color-gold-light: #f6edd0;
-  --color-ink: #0f172a;
+  /* Plum actions on a navy sidebar. "gold" is the accent slot, now a soft orchid */
+  --color-brand: #5c2d73;
+  --color-brand-dark: #451f58;
+  --color-brand-light: #7a3f96;
+  --color-sidebar: #17234a;
+  --color-canvas: #f4f5f9;
+  --color-gold: #d9bfe8;
+  --color-gold-light: #f4ecf8;
+  --color-ink: #1b2240;
 }
 
-.field {
-  @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-slate-50 disabled:text-slate-500;
-}
+/* In the components layer so utilities (md:hidden, pl-8, px-2) can override these */
+@layer components {
+  .field {
+    @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-slate-50 disabled:text-slate-500;
+  }
 
-.btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-light disabled:opacity-60;
-}
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-light disabled:opacity-60;
+  }
 
-.btn-secondary {
-  @apply inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60;
-}
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60;
+  }
 
-.btn-ghost {
-  @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60;
-}
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60;
+  }
 
-.btn-gold {
-  @apply inline-flex items-center justify-center gap-2 rounded-md bg-gold px-4 py-2 text-sm font-semibold text-brand hover:brightness-105 disabled:opacity-60;
-}
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-gold px-4 py-2 text-sm font-semibold text-brand hover:brightness-105 disabled:opacity-60;
+  }
 
-.card {
-  /* min-w-0: cards inside grids must not grow to fit truncated text */
-  @apply min-w-0 rounded-xl border border-slate-200 bg-white;
-}
+  .card {
+    /* min-w-0: cards inside grids must not grow to fit truncated text */
+    @apply min-w-0 rounded-lg border border-slate-200/70 bg-white shadow-[0_1px_3px_rgb(23_35_74/0.05)];
+  }
 
-.label {
-  @apply mb-1 block text-xs font-medium text-slate-500;
+  .label {
+    @apply mb-1 block text-xs font-medium text-slate-500;
+  }
 }
 
 /* Leaflet needs a sized container */

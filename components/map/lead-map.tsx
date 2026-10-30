@@ -25,7 +25,7 @@ export default function LeadMap({ branches, pins, probe, center }: { branches: M
         </CircleMarker>
       ))}
       {probe && (
-        <CircleMarker center={[probe.lat, probe.lng]} radius={9} pathOptions={{ color: "#0b1f3a", weight: 3, fillColor: "#c9a227", fillOpacity: 1 }}>
+        <CircleMarker center={[probe.lat, probe.lng]} radius={9} pathOptions={{ color: "#17234a", weight: 3, fillColor: "#7b3f9e", fillOpacity: 1 }}>
           <Tooltip permanent direction="right" offset={[10, 0]}>
             {probe.label}
           </Tooltip>

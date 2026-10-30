@@ -73,7 +73,7 @@ export function LeadTable({
   return (
     <div>
       {selected.size > 0 && (
-        <div className="sticky top-14 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm text-white shadow">
+        <div className="sticky top-28 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm text-white shadow">
           <span className="font-medium">{selected.size} selected</span>
           {canBulkReassign && (
             <>

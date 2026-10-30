@@ -17,8 +17,8 @@ export default function PinPicker({ lat, lng, radiusKm, onPick }: { lat: number 
       <ClickToSet onPick={onPick} />
       {lat != null && lng != null && (
         <>
-          <Circle center={[lat, lng]} radius={radiusKm * 1000} pathOptions={{ color: "#0b1f3a", weight: 2, fillOpacity: 0.05, dashArray: "6 6" }} />
-          <CircleMarker center={[lat, lng]} radius={9} pathOptions={{ color: "#ffffff", weight: 2, fillColor: "#c9a227", fillOpacity: 1 }} />
+          <Circle center={[lat, lng]} radius={radiusKm * 1000} pathOptions={{ color: "#17234a", weight: 2, fillOpacity: 0.05, dashArray: "6 6" }} />
+          <CircleMarker center={[lat, lng]} radius={9} pathOptions={{ color: "#ffffff", weight: 2, fillColor: "#7b3f9e", fillOpacity: 1 }} />
         </>
       )}
     </MapContainer>

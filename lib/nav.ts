@@ -43,6 +43,16 @@ export interface NavItem {
 
 export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
+    title: "Insights",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/dashboard/reports", label: "Reports", icon: BarChart3, perms: ["reports.view"] },
+      { href: "/dashboard/team-performance", label: "Team performance", icon: Gauge, perms: ["team.performance"] },
+      { href: "/dashboard/campaigns", label: "Campaigns", icon: Megaphone, perms: ["reports.view"] },
+      { href: "/dashboard/map", label: "Map", icon: Map, feature: "F27" },
+    ],
+  },
+  {
     title: "Work",
     items: [
       { href: "/dashboard/my-day", label: "My Day", icon: Sun },
@@ -51,16 +61,6 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/dashboard/queues", label: "Queues", icon: Layers, perms: ["queues.needsLocation", "queues.outOfArea", "leads.reassign"] },
       { href: "/dashboard/appointments", label: "Appointments", icon: CalendarCheck },
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, feature: "F22" },
-    ],
-  },
-  {
-    title: "Insights",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/dashboard/reports", label: "Reports", icon: BarChart3, perms: ["reports.view"] },
-      { href: "/dashboard/team-performance", label: "Team performance", icon: Gauge, perms: ["team.performance"] },
-      { href: "/dashboard/campaigns", label: "Campaigns", icon: Megaphone, perms: ["reports.view"] },
-      { href: "/dashboard/map", label: "Map", icon: Map, feature: "F27" },
     ],
   },
   {
