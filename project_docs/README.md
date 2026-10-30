@@ -15,6 +15,7 @@ Docs for the first client demo of the Elementra lead-management CRM (Next.js 16 
 | `08_WEEK1_TEST_GUIDE.md` | You / testers | Step-by-step checklist to test every Week 1 feature (roles, segregation, users, masters, phone key) + regression |
 | `09_WEEK1_DEMO_GUIDE.md` | You → client | End-of-Week-1 demo script (20–25 min + 10-min version), cheat sheet, reset, don't-click list |
 | `10_WEEK1_EXPLAINED.md` | You / new team members | What was built and why, how it works, done / not-done status for all 5 weeks |
+| `11_CLIENT_REVIEW_AND_WEEK2_QUESTIONNAIRE.md` | You → client (Purva) | Client review pack (what to test, step by step), feedback table, and the Week 2 questionnaire: qualification, duplicates, chatbot, smaller decisions, access needed |
 
 Files Claude will create during the build:
 - `project_docs/IMPLEMENTATION_PLAN.md`: audit of the existing code + how the spec maps onto it
