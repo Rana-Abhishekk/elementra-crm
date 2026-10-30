@@ -1,10 +1,12 @@
 // Working a lead: stage changes, activities, follow-ups. Each writes a timeline entry + audit row.
-import type { CallOutcome, LeadStage, LostReason, Prisma, TaskType } from "@prisma/client";
+import type { CallOutcome, Prisma, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/domain/audit";
-import { CALL_OUTCOME_LABEL, PRODUCT_LABEL } from "@/lib/domain/labels";
-import { canTransition, isOpenStage, LOST_REASON_LABEL, stageLabel } from "@/lib/domain/stages";
+import { CALL_OUTCOME_LABEL } from "@/lib/domain/labels";
+import { canTransition, firstQualifiedStage, isOpen, mapStageToPipeline, openPhoneKey, stageByKey, type StageRef } from "@/lib/domain/stages";
 import { formatIST, friendlyIST } from "@/lib/domain/time";
+import { loadMasters } from "@/lib/data/masters";
+import { isOpenPhoneConflict } from "./ingest";
 import { rerouteLead } from "./reroute";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -22,69 +24,104 @@ export async function recomputeNextFollowUp(leadId: string, db: Db = prisma) {
   await db.lead.update({ where: { id: leadId }, data: { nextFollowUpAt: next ? (next.snoozedUntil ?? next.dueAt) : null } });
 }
 
+/** Timeline meta for a stage move: labels are stored so history keeps the heading it had at the time. */
+export const stageMeta = (from: StageRef, to: StageRef) => ({ fromStageId: from.id, toStageId: to.id, fromLabel: from.label, toLabel: to.label });
+
+async function phoneConflictMessage(phone: string | null, leadId: string) {
+  const other = phone ? await prisma.lead.findUnique({ where: { openPhoneKey: phone }, select: { id: true, refCode: true } }) : null;
+  return other && other.id !== leadId ? `${other.refCode} is already the open lead for ${phone}. Close or merge it first.` : "Another open lead already uses this phone number.";
+}
+
 export async function changeStage(
   leadId: string,
-  to: LeadStage,
-  opts: { actorId: string; canReopen: boolean; lostReason?: LostReason | null; lostNote?: string | null; reviveAt?: Date | null; orderValueInr?: number | null },
+  toStageId: string,
+  opts: { actorId: string; canReopen: boolean; lostNote?: string | null; reviveAt?: Date | null; orderValueInr?: number | null },
   now = new Date(),
 ): Promise<Result> {
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, include: { branch: true } });
+  const [lead, masters] = await Promise.all([prisma.lead.findUnique({ where: { id: leadId }, include: { branch: true } }), loadMasters()]);
   if (!lead) return { ok: false, error: "Lead not found" };
-  if (!canTransition(lead.stage, to, opts.canReopen)) {
-    return { ok: false, error: isOpenStage(lead.stage) ? "Leads can move forward, one step back, or to Won/Lost." : "Only managers can reopen a closed lead." };
+  const from = masters.stageById.get(lead.stageId)!;
+  const to = masters.stageById.get(toStageId);
+  if (!to) return { ok: false, error: "That stage doesn't exist any more." };
+  if (to.pipelineId !== lead.pipelineId) return { ok: false, error: "That stage belongs to another pipeline. Move the lead to that pipeline first." };
+  if (!canTransition(masters.stages, from, to, opts.canReopen)) {
+    return { ok: false, error: isOpen(from) ? "Leads can move forward, one step back, or to Won/Lost." : "Only people allowed to reopen leads can move a closed lead back." };
   }
-  if (to === "CLOSED_LOST" && !opts.lostReason) return { ok: false, error: "Choose a lost reason." };
+  if (to.requiresNote && !opts.lostNote?.trim()) return { ok: false, error: `Add a note for "${to.label}".` };
 
-  const from = stageLabel(lead.stage, lead.lostReason);
-  const toLabel = stageLabel(to, opts.lostReason);
-  let reviveAt: Date | null = null;
-  if (to === "CLOSED_LOST" && (opts.lostReason === "ON_HOLD" || opts.lostReason === "TIMELINE")) {
-    reviveAt =
-      opts.reviveAt ?? (lead.possessionDate ? new Date(lead.possessionDate.getTime() - 30 * 86400_000) : new Date(now.getTime() + 30 * 86400_000));
-  }
-  const orderValue = to === "CLOSED_WON" ? (opts.orderValueInr ?? lead.orderValueInr ?? lead.estimatedValueInr ?? null) : lead.orderValueInr;
+  const reviveAt = to.askReviveDate
+    ? (opts.reviveAt ?? (lead.possessionDate ? new Date(lead.possessionDate.getTime() - 30 * 86400_000) : new Date(now.getTime() + 30 * 86400_000)))
+    : null;
+  const orderValue = to.category === "WON" ? (opts.orderValueInr ?? lead.orderValueInr ?? lead.estimatedValueInr ?? null) : lead.orderValueInr;
+  const closed = !isOpen(to);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.lead.update({
-      where: { id: leadId },
-      data: {
-        stage: to,
-        stageChangedAt: now,
-        lastActivityAt: now,
-        lostReason: to === "CLOSED_LOST" ? opts.lostReason : null,
-        lostNote: to === "CLOSED_LOST" ? (opts.lostNote ?? null) : null,
-        reviveAt,
-        orderValueInr: orderValue,
-        ...(to === "CONTACTED" && !lead.firstContactedAt ? { firstContactedAt: now } : {}),
-      },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.lead.update({
+        where: { id: leadId },
+        data: {
+          stageId: to.id,
+          openPhoneKey: openPhoneKey(to.category, lead.phoneE164),
+          stageChangedAt: now,
+          lastActivityAt: now,
+          lostNote: closed ? (opts.lostNote ?? null) : null,
+          reviveAt,
+          orderValueInr: orderValue,
+          ...(to.systemKey === "CONTACTED" && !lead.firstContactedAt ? { firstContactedAt: now } : {}),
+        },
+      });
+      const extra =
+        to.category === "LOST"
+          ? `${opts.lostNote ? ` — ${opts.lostNote}` : ""}${reviveAt ? `. Revive reminder on ${formatIST(reviveAt, "d MMM yyyy")}.` : ""}`
+          : to.category === "WON" && orderValue
+            ? ` — order value ₹${orderValue.toLocaleString("en-IN")}`
+            : opts.lostNote
+              ? ` — ${opts.lostNote}`
+              : "";
+      await tx.activity.create({ data: { leadId, type: "STAGE_CHANGE", body: `Stage: ${from.label} → ${to.label}${extra}`, userId: opts.actorId, meta: stageMeta(from, to), createdAt: now } });
+
+      if (closed) {
+        await tx.task.updateMany({ where: { leadId, status: { in: ["OPEN", "SNOOZED"] } }, data: { status: "CANCELLED" } });
+        await tx.lead.update({ where: { id: leadId }, data: { nextFollowUpAt: null } });
+      }
+      if (to.category === "WON") await createDealAndProject(tx, leadId, orderValue, now);
+      await writeAudit({ actorId: opts.actorId, action: "lead.stage_changed", entityType: "Lead", entityId: leadId, summary: `${lead.refCode} stage: ${from.label} → ${to.label}`, diff: stageMeta(from, to) }, tx);
     });
-    const extra =
-      to === "CLOSED_LOST"
-        ? `${opts.lostNote ? ` — ${opts.lostNote}` : ""}${reviveAt ? `. Revive reminder on ${formatIST(reviveAt, "d MMM yyyy")}.` : ""}`
-        : to === "CLOSED_WON" && orderValue
-          ? ` — order value ₹${orderValue.toLocaleString("en-IN")}`
-          : "";
-    await tx.activity.create({ data: { leadId, type: "STAGE_CHANGE", body: `Stage: ${from} → ${toLabel}${extra}`, userId: opts.actorId, meta: { from: lead.stage, to }, createdAt: now } });
-
-    if (!isOpenStage(to)) {
-      await tx.task.updateMany({ where: { leadId, status: { in: ["OPEN", "SNOOZED"] } }, data: { status: "CANCELLED" } });
-      await tx.lead.update({ where: { id: leadId }, data: { nextFollowUpAt: null } });
-    }
-    if (to === "CLOSED_WON") await createDealAndProject(tx, leadId, orderValue, now);
-    await writeAudit({ actorId: opts.actorId, action: "lead.stage_changed", entityType: "Lead", entityId: leadId, summary: `${lead.refCode} stage: ${from} → ${toLabel}` }, tx);
-  });
+  } catch (e) {
+    if (isOpenPhoneConflict(e)) return { ok: false, error: await phoneConflictMessage(lead.phoneE164, leadId) };
+    throw e;
+  }
 
   // Via-pre-sales mode: qualifying a located lead hands it over to the suggested branch
-  if (to === "QUALIFIED" && lead.branch?.kind === "ONLINE_DESK" && lead.locationStatus === "RESOLVED") {
+  if (to.id === firstQualifiedStage(masters.stages, lead.pipelineId)?.id && lead.branch?.kind === "ONLINE_DESK" && lead.locationStatus === "RESOLVED") {
     const res = await rerouteLead(leadId, {}, opts.actorId, now);
     if (res.ok) return { ok: true, message: res.toast };
   }
-  return { ok: true, message: `Moved to ${toLabel}` };
+  return { ok: true, message: `Moved to ${to.label}` };
+}
+
+/** Move a lead to another pipeline: same category, nearest position (06 §4.2). */
+export async function moveToPipeline(leadId: string, pipelineId: string, actorId: string, now = new Date()): Promise<Result> {
+  const [lead, masters] = await Promise.all([prisma.lead.findUnique({ where: { id: leadId } }), loadMasters()]);
+  if (!lead) return { ok: false, error: "Lead not found" };
+  const target = masters.pipelineById.get(pipelineId);
+  if (!target || !target.isActive) return { ok: false, error: "Pick an active pipeline." };
+  if (lead.pipelineId === pipelineId) return { ok: false, error: "The lead is already in that pipeline." };
+  const from = masters.stageById.get(lead.stageId)!;
+  const to = mapStageToPipeline(masters.stages, from, pipelineId);
+  if (!to) return { ok: false, error: `${target.name} has no active stages.` };
+  const fromPipeline = masters.pipelineById.get(lead.pipelineId)?.name ?? "previous pipeline";
+  await prisma.$transaction(async (tx) => {
+    await tx.lead.update({ where: { id: leadId }, data: { pipelineId, stageId: to.id, stageChangedAt: now, lastActivityAt: now } });
+    await tx.activity.create({ data: { leadId, type: "STAGE_CHANGE", body: `Pipeline: ${fromPipeline} → ${target.name} · stage ${from.label} → ${to.label}`, userId: actorId, meta: stageMeta(from, to), createdAt: now } });
+    await writeAudit({ actorId, action: "lead.pipeline_changed", entityType: "Lead", entityId: leadId, summary: `${lead.refCode} moved to ${target.name} (${to.label})` }, tx);
+  });
+  return { ok: true, message: `Moved to ${target.name} · ${to.label}` };
 }
 
 async function createDealAndProject(tx: Prisma.TransactionClient, leadId: string, orderValue: number | null, now: Date) {
-  const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId }, include: { architect: { select: { companyId: true } } } });
-  const product = lead.products.length ? lead.products.map((p) => PRODUCT_LABEL[p]).join(" + ") : "Kitchen";
+  const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId }, include: { architect: { select: { companyId: true } }, products: { select: { name: true } } } });
+  const product = lead.products.length ? lead.products.map((p) => p.name).join(" + ") : "Order";
   await tx.deal.upsert({
     where: { leadId },
     update: { stage: "WON", amount: (orderValue ?? 0) * 100, closeDate: now },
@@ -127,7 +164,9 @@ export async function addNote(leadId: string, body: string, actorId: string, now
 }
 
 export async function logCall(leadId: string, outcome: CallOutcome, note: string | null, actorId: string, now = new Date()): Promise<Result> {
-  const lead = await prisma.lead.findUniqueOrThrow({ where: { id: leadId } });
+  const [lead, masters] = await Promise.all([prisma.lead.findUniqueOrThrow({ where: { id: leadId } }), loadMasters()]);
+  const stage = masters.stageById.get(lead.stageId)!;
+  const contacted = stage.isInitial && outcome === "CONNECTED" ? stageByKey(masters.stages, lead.pipelineId, "CONTACTED") : null;
   const body = `Call: ${CALL_OUTCOME_LABEL[outcome]}${note ? ` — ${note}` : ""}`;
   let message = `Call logged: ${CALL_OUTCOME_LABEL[outcome]}`;
   await prisma.$transaction(async (tx) => {
@@ -135,10 +174,11 @@ export async function logCall(leadId: string, outcome: CallOutcome, note: string
     await tx.lead.update({ where: { id: leadId }, data: { lastActivityAt: now, firstContactedAt: lead.firstContactedAt ?? now } });
     // The first-call task is done once someone has tried calling
     await tx.task.updateMany({ where: { leadId, status: { in: ["OPEN", "SNOOZED"] }, type: "FIRST_CALL" }, data: { status: "DONE", completedAt: now } });
-    if (outcome === "CONNECTED" && lead.stage === "NEW") {
-      await tx.lead.update({ where: { id: leadId }, data: { stage: "CONTACTED", stageChangedAt: now } });
-      await tx.activity.create({ data: { leadId, type: "STAGE_CHANGE", body: `Stage: ${stageLabel("NEW")} → ${stageLabel("CONTACTED")} (call connected)`, userId: actorId, createdAt: new Date(now.getTime() + 1) } });
-      message += " · moved to Contacted";
+    // Connected call on the starting stage → the stage keyed CONTACTED, when the pipeline has one
+    if (contacted) {
+      await tx.lead.update({ where: { id: leadId }, data: { stageId: contacted.id, stageChangedAt: now } });
+      await tx.activity.create({ data: { leadId, type: "STAGE_CHANGE", body: `Stage: ${stage.label} → ${contacted.label} (call connected)`, userId: actorId, meta: stageMeta(stage, contacted), createdAt: new Date(now.getTime() + 1) } });
+      message += ` · moved to ${contacted.label}`;
     }
     await recomputeNextFollowUp(leadId, tx);
   });
@@ -147,8 +187,8 @@ export async function logCall(leadId: string, outcome: CallOutcome, note: string
 
 /** Creates or moves the single open FOLLOW_UP task (spec §9.3). */
 export async function setFollowUp(leadId: string, dueAt: Date, note: string | null, actorId: string, now = new Date()): Promise<Result> {
-  const lead = await prisma.lead.findUniqueOrThrow({ where: { id: leadId } });
-  if (!isOpenStage(lead.stage)) return { ok: false, error: "Closed leads don't need follow-ups." };
+  const lead = await prisma.lead.findUniqueOrThrow({ where: { id: leadId }, include: { stage: { select: { category: true } } } });
+  if (!isOpen(lead.stage)) return { ok: false, error: "Closed leads don't need follow-ups." };
   const assigneeId = lead.ownerId ?? actorId;
   const title = note?.trim() || `Follow up with ${lead.firstName}`;
   await prisma.$transaction(async (tx) => {
@@ -164,4 +204,3 @@ export async function setFollowUp(leadId: string, dueAt: Date, note: string | nu
   return { ok: true, message: `Follow-up set for ${friendlyIST(dueAt, now)}` };
 }
 
-export const LOST_REASON_OPTIONS = Object.entries(LOST_REASON_LABEL).map(([value, label]) => ({ value: value as LostReason, label }));

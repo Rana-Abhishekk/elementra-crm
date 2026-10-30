@@ -1,12 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireRole, isDemoMode } from "@/lib/access";
+import { isDemoMode, requirePermission } from "@/lib/auth";
 import { runRandomBurst, runScenario, type ScenarioResult } from "@/lib/demo/scenarios";
 
 async function guard() {
   if (!isDemoMode()) throw new Error("Demo mode is off");
-  return requireRole("OWNER", "ADMIN");
+  return requirePermission("demo.use");
 }
 
 export async function runScenarioAction(id: number): Promise<ScenarioResult> {

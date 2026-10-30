@@ -1,18 +1,20 @@
 import { prisma } from "@/lib/prisma";
-import { requirePageRole } from "@/lib/access";
+import { requirePagePermission } from "@/lib/auth";
 import { Card, CardHeader, PageHeader } from "@/components/ui";
 import { formatIST } from "@/lib/domain/time";
+import { getMasters } from "@/lib/data/masters";
 import { ImportWizard } from "./import-wizard";
 
 export default async function ImportsPage() {
-  await requirePageRole("OWNER", "ADMIN", "PRESALES");
+  await requirePagePermission("imports.run");
+  const masters = await getMasters();
   const jobs = await prisma.importJob.findMany({ orderBy: { createdAt: "desc" }, take: 20 });
   const users = await prisma.user.findMany({ where: { id: { in: jobs.map((j) => j.createdById) } }, select: { id: true, name: true } });
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Imports" description="Bring leads in from a Meta Leads Center export. Every row goes through the same routing as a live lead; re-importing the same file creates nothing twice." />
-      <ImportWizard />
+      <ImportWizard masters={{ sources: masters.sources, products: masters.products, stages: masters.stages, defaultPipelineId: masters.defaultPipeline.id }} />
       <Card className="mt-6">
         <CardHeader title="Import history" />
         <table className="w-full text-sm">

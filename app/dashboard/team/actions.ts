@@ -3,17 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/access";
+import { requirePermission } from "@/lib/auth";
+import { canSeeUser } from "@/lib/auth/scope";
 import { writeAudit } from "@/lib/domain/audit";
 import { formatISTDate } from "@/lib/domain/time";
 
 type Result = { ok: true; message?: string } | { ok: false; error: string };
 
 async function editableMember(userId: string) {
-  const actor = await requireRole("OWNER", "ADMIN", "SALES_MANAGER");
-  const member = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  // Managers manage their own branch only
-  if (actor.role === "SALES_MANAGER" && member.branchId !== actor.branchId) throw new Error("You can only change people in your branch.");
+  const actor = await requirePermission("users.manage");
+  const member = await prisma.user.findUnique({ where: { id: userId } });
+  // Managers manage people in their own branches only (userWhere)
+  if (!member || !canSeeUser(actor, member)) throw new Error("User not found.");
   return { actor, member };
 }
 

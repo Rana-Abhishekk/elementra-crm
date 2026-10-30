@@ -1,7 +1,7 @@
 // Sends a WhatsApp template to a lead through the configured provider and logs it on the timeline.
 import { Prisma, type OutboundMessage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { productPhrase } from "@/lib/domain/labels";
+import { productPhrase } from "@/lib/domain/masters/resolve";
 import { shortBranch } from "@/lib/domain/routing/decide";
 import { renderTemplate } from "./render";
 import { simulatorProvider } from "./simulator";
@@ -29,7 +29,7 @@ export interface SendTemplateInput {
 export async function sendTemplate(input: SendTemplateInput): Promise<OutboundMessage | null> {
   const lead = await prisma.lead.findUnique({
     where: { id: input.leadId },
-    include: { branch: true, owner: { select: { name: true } }, locality: { select: { name: true } } },
+    include: { branch: true, owner: { select: { name: true } }, locality: { select: { name: true } }, products: { select: { name: true }, orderBy: { sortOrder: "asc" } } },
   });
   if (!lead?.phoneE164) return null;
   const language = input.language ?? lead.language ?? "en";
@@ -40,7 +40,7 @@ export async function sendTemplate(input: SendTemplateInput): Promise<OutboundMe
 
   const vars: Record<string, string> = {
     name: lead.firstName,
-    product: productPhrase(lead.products),
+    product: productPhrase(lead.products.map((p) => p.name)),
     branch: lead.branch && lead.branch.kind === "EXPERIENCE_CENTRE" ? shortBranch(lead.branch.name) : "nearest",
     rep_name: lead.owner?.name ?? "our team",
     map_link: mapLink(lead.branch?.lat ?? null, lead.branch?.lng ?? null),

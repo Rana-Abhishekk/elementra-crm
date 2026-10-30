@@ -1,11 +1,13 @@
 import { ChevronRight, Megaphone } from "lucide-react";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { leadWhereForUser, requirePageRole } from "@/lib/access";
+import { requirePagePermission } from "@/lib/auth";
+import { leadWhere } from "@/lib/auth/scope";
 import { Card, EmptyState, PageHeader, Tabs } from "@/components/ui";
 import { FeatureBadge } from "@/components/feature-badge";
 import { formatINR, formatLakh } from "@/lib/domain/money";
-import { STAGE_ORDER, STAGE_SHORT } from "@/lib/domain/stages";
+import { getMasters } from "@/lib/data/masters";
+import { openStages } from "@/lib/domain/stages";
 import { shortBranch } from "@/lib/domain/routing/decide";
 import { SpendInput } from "./spend-input";
 
@@ -18,10 +20,9 @@ interface Agg {
   wonValue: number;
 }
 const empty = (): Agg => ({ leads: 0, located: 0, qualified: 0, visits: 0, won: 0, wonValue: 0 });
-const qualifiedIdx = STAGE_ORDER.indexOf("QUALIFIED");
 
 export default async function CampaignsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  const user = await requirePageRole("OWNER", "ADMIN", "SALES_MANAGER");
+  const user = await requirePagePermission("reports.view");
   const sp = await searchParams;
   const tab = sp.tab === "broadcasts" ? "broadcasts" : "performance";
   return (
@@ -34,7 +35,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
           { key: "broadcasts", label: <span className="inline-flex items-center gap-1.5">Broadcasts <FeatureBadge feature="F46" /></span>, href: "?tab=broadcasts" },
         ]}
       />
-      {tab === "performance" ? <Performance where={leadWhereForUser(user)} /> : <Broadcasts where={leadWhereForUser(user)} sp={sp} />}
+      {tab === "performance" ? <Performance where={leadWhere(user)} /> : <Broadcasts where={leadWhere(user)} sp={sp} />}
     </div>
   );
 }
@@ -43,7 +44,7 @@ async function Performance({ where }: { where: Prisma.LeadWhereInput }) {
   const [leads, spendRow] = await Promise.all([
     prisma.lead.findMany({
       where: { AND: [where, { campaignName: { not: null } }] },
-      select: { campaignName: true, adsetName: true, adName: true, stage: true, locationStatus: true, orderValueInr: true, appointments: { where: { status: "VISITED" }, select: { id: true } } },
+      select: { campaignName: true, adsetName: true, adName: true, stage: { select: { category: true, requiresQualification: true } }, locationStatus: true, orderValueInr: true, appointments: { where: { status: "VISITED" }, select: { id: true } } },
     }),
     prisma.appSetting.findUnique({ where: { key: "campaign.spend" } }),
   ]);
@@ -59,9 +60,10 @@ async function Performance({ where }: { where: Prisma.LeadWhereInput }) {
   const add = (a: Agg, l: (typeof leads)[number]) => {
     a.leads++;
     if (l.locationStatus === "RESOLVED") a.located++;
-    if (STAGE_ORDER.indexOf(l.stage) >= qualifiedIdx && l.stage !== "CLOSED_LOST") a.qualified++;
+    // Qualified = past the qualification gate (stage flag) or won
+    if (l.stage.category === "WON" || (l.stage.category === "OPEN" && l.stage.requiresQualification)) a.qualified++;
     a.visits += l.appointments.length ? 1 : 0;
-    if (l.stage === "CLOSED_WON") {
+    if (l.stage.category === "WON") {
       a.won++;
       a.wonValue += l.orderValueInr ?? 0;
     }
@@ -139,12 +141,15 @@ function Row({ label, a, level, spend, campaign }: { label: string; a: Agg; leve
 }
 
 async function Broadcasts({ where, sp }: { where: Prisma.LeadWhereInput; sp: Record<string, string | undefined> }) {
+  const masters = await getMasters();
+  const stageChoices = openStages(masters.stages, masters.defaultPipeline.id);
+  const stageId = stageChoices.find((s) => s.id === sp.stage)?.id ?? stageChoices.find((s) => s.requiresQualification)?.id ?? stageChoices[0]?.id;
   const [branches, templates] = await Promise.all([
     prisma.branch.findMany({ where: { kind: "EXPERIENCE_CENTRE" }, orderBy: { name: "asc" } }),
     prisma.messageTemplate.findMany({ where: { category: "MARKETING" }, select: { code: true, name: true, language: true, status: true } }),
   ]);
   const days = Number(sp.days ?? 60);
-  const filters: Prisma.LeadWhereInput[] = [where, { stage: (sp.stage as Prisma.EnumLeadStageFilter["equals"]) ?? "QUALIFIED" }, { phoneE164: { not: null } }];
+  const filters: Prisma.LeadWhereInput[] = [where, { stageId }, { phoneE164: { not: null } }];
   if (sp.branch) filters.push({ branchId: sp.branch });
   if (days) filters.push({ possessionDate: { gte: new Date(), lte: new Date(new Date().getTime() + days * 86400_000) } });
   const audience = await prisma.lead.count({ where: { AND: filters } });
@@ -154,10 +159,10 @@ async function Broadcasts({ where, sp }: { where: Prisma.LeadWhereInput; sp: Rec
       <form className="grid gap-4 sm:grid-cols-4">
         <label className="text-sm">
           <span className="label">Stage</span>
-          <select name="stage" defaultValue={sp.stage ?? "QUALIFIED"} className="field">
-            {STAGE_ORDER.slice(0, 8).map((s) => (
-              <option key={s} value={s}>
-                {STAGE_SHORT[s]}
+          <select name="stage" defaultValue={stageId} className="field">
+            {stageChoices.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
               </option>
             ))}
           </select>

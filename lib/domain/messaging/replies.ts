@@ -14,7 +14,7 @@ const REPLIES = [
 export async function simulateCustomerReply(leadId?: string) {
   const lead = leadId
     ? await prisma.lead.findUnique({ where: { id: leadId } })
-    : await prisma.lead.findFirst({ where: { phoneE164: { not: null }, messages: { some: {} }, stage: { notIn: ["CLOSED_WON", "CLOSED_LOST"] } }, orderBy: { lastActivityAt: "desc" } });
+    : await prisma.lead.findFirst({ where: { phoneE164: { not: null }, messages: { some: {} }, stage: { category: "OPEN" } }, orderBy: { lastActivityAt: "desc" } });
   if (!lead?.phoneE164) return null;
   const body = REPLIES[Math.floor(Math.random() * REPLIES.length)];
   const now = new Date();

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/domain/settings";
-import { evaluateRules, type Intent, type SnapLead, type Snapshot } from "./rules";
+import { evaluateRules, type Intent, type SnapLead, type SnapStage, type Snapshot } from "./rules";
+import { fixtureStage } from "@/lib/domain/masters/fixtures";
+
+const stage = (key: string): SnapStage => fixtureStage(key);
 
 // Wed 28 Oct 2026, 15:00 IST
 const NOW = new Date("2026-10-28T15:00:00+05:30");
@@ -8,10 +11,10 @@ const h = (n: number) => new Date(NOW.getTime() - n * 3600_000);
 const d = (n: number) => new Date(NOW.getTime() - n * 86400_000);
 
 const users = [
-  { id: "owner", name: "Aarav Mehta", role: "OWNER", branchId: null },
-  { id: "kabir", name: "Kabir Malhotra", role: "SALES_MANAGER", branchId: "WOR" },
-  { id: "ishita", name: "Ishita Desai", role: "SALES_REP", branchId: "WOR" },
-  { id: "ananya", name: "Ananya Rao", role: "PRESALES", branchId: "ONL" },
+  { id: "owner", name: "Aarav Mehta", isOwner: true, scope: "ALL" as const, branchId: null, branchIds: [], handlesNeedsLocation: true },
+  { id: "kabir", name: "Kabir Malhotra", isOwner: false, scope: "BRANCH" as const, branchId: "WOR", branchIds: ["WOR"], handlesNeedsLocation: false },
+  { id: "ishita", name: "Ishita Desai", isOwner: false, scope: "OWN" as const, branchId: "WOR", branchIds: ["WOR"], handlesNeedsLocation: false },
+  { id: "ananya", name: "Ananya Rao", isOwner: false, scope: "OWN" as const, branchId: "ONL", branchIds: ["ONL"], handlesNeedsLocation: true },
 ];
 
 const lead = (o: Partial<SnapLead> = {}): SnapLead => ({
@@ -20,8 +23,7 @@ const lead = (o: Partial<SnapLead> = {}): SnapLead => ({
   firstName: "Rhea",
   lastName: "Kapoor",
   salutation: null,
-  stage: "NEW",
-  lostReason: null,
+  stage: stage("NEW"),
   reviveAt: null,
   ownerId: "ishita",
   branchId: "WOR",
@@ -100,14 +102,14 @@ describe("R2 follow-up due", () => {
 
 describe("R3 stale stage", () => {
   it("creates a quotation follow-up after 3 idle days in Quotation Sent", () => {
-    const s = snap({ leads: [lead({ stage: "QUOTATION_SENT", lastActivityAt: d(4), openTasks: [], contacted: true })] });
+    const s = snap({ leads: [lead({ stage: stage("QUOTATION_SENT"), lastActivityAt: d(4), openTasks: [], contacted: true })] });
     const task = run(s).find((i) => i.kind === "task");
-    expect(task).toMatchObject({ rule: "R3", type: "QUOTATION_FOLLOW_UP", dedupeKey: "R3:L1:QUOTATION_SENT:2026-10-28" });
+    expect(task).toMatchObject({ rule: "R3", type: "QUOTATION_FOLLOW_UP", dedupeKey: "R3:L1:stg_quote_sent:2026-10-28" });
     keysAreStable(s);
   });
 
   it("stays quiet when a task is already open", () => {
-    expect(run(snap({ leads: [lead({ stage: "QUOTATION_SENT", lastActivityAt: d(4), contacted: true })] }))).toEqual([]);
+    expect(run(snap({ leads: [lead({ stage: stage("QUOTATION_SENT"), lastActivityAt: d(4), contacted: true })] }))).toEqual([]);
   });
 });
 
@@ -134,7 +136,7 @@ describe("R6 no-response", () => {
       { outcome: "BUSY" as const, at: d(3) },
       { outcome: "SWITCHED_OFF" as const, at: d(6) },
     ];
-    const s = snap({ leads: [lead({ stage: "CONTACTED", contacted: true, calls })] });
+    const s = snap({ leads: [lead({ stage: stage("CONTACTED"), contacted: true, calls })] });
     const out = run(s);
     expect(rules(out)).toEqual(["R6:notify"]);
     keysAreStable(s);
@@ -147,19 +149,19 @@ describe("R6 no-response", () => {
       { outcome: "NO_ANSWER" as const, at: d(3) },
       { outcome: "NO_ANSWER" as const, at: d(4) },
     ];
-    expect(run(snap({ leads: [lead({ stage: "CONTACTED", contacted: true, calls })] }))).toEqual([]);
+    expect(run(snap({ leads: [lead({ stage: stage("CONTACTED"), contacted: true, calls })] }))).toEqual([]);
   });
 });
 
 describe("R7 revive", () => {
-  it("re-engages On hold leads on their revive date, once", () => {
-    const s = snap({ leads: [lead({ stage: "CLOSED_LOST", lostReason: "ON_HOLD", reviveAt: d(1), openTasks: [] })] });
+  it("re-engages leads closed in a revive-date stage (On hold) on that date, once", () => {
+    const s = snap({ leads: [lead({ stage: stage("LOST_ON_HOLD"), reviveAt: d(1), openTasks: [] })] });
     expect(rules(run(s))).toEqual(["R7:task", "R7:notify", "R7:timeline"]);
     keysAreStable(s);
   });
 
-  it("ignores other lost reasons", () => {
-    expect(run(snap({ leads: [lead({ stage: "CLOSED_LOST", lostReason: "BUDGET", reviveAt: d(1) })] }))).toEqual([]);
+  it("ignores lost stages that don't ask for a revive date", () => {
+    expect(run(snap({ leads: [lead({ stage: stage("LOST_BUDGET"), reviveAt: d(1) })] }))).toEqual([]);
   });
 });
 
@@ -181,6 +183,23 @@ describe("R9 digest", () => {
     const out = run(snap(), new Date("2026-10-28T09:45:00+05:30"), on);
     expect(out.map((i) => (i as { userId: string }).userId).sort()).toEqual(["kabir", "owner"]);
     expect(out[0]).toMatchObject({ title: "Morning digest · Yesterday: 14 new, 2 out-of-area, 3 need location", body: "Overdue follow-ups: Ishita 5", dedupeKey: "R9:owner:2026-10-28" });
+  });
+});
+
+describe("R9 digest for a multi-branch manager", () => {
+  it("covers every branch the manager is assigned to", () => {
+    const vikram = { id: "vikram", name: "Vikram Sethi", isOwner: false, scope: "BRANCH" as const, branchId: "WOR", branchIds: ["WOR", "AND"], handlesNeedsLocation: false };
+    const meera = { id: "meera", name: "Meera Joshi", isOwner: false, scope: "OWN" as const, branchId: "AND", branchIds: ["AND"], handlesNeedsLocation: false };
+    const out = run(snap({ users: [...users, vikram, meera], overdueByUser: { ishita: 5, meera: 2 } }), new Date("2026-10-28T09:45:00+05:30"), DEFAULT_SETTINGS);
+    expect(out.find((i) => (i as { userId: string }).userId === "vikram")).toMatchObject({ body: "Overdue follow-ups: Ishita 5, Meera 2" });
+    expect(out.find((i) => (i as { userId: string }).userId === "kabir")).toMatchObject({ body: "Overdue follow-ups: Ishita 5" });
+  });
+});
+
+describe("R3 uses the stage master's stale days", () => {
+  it("follows an admin's change to the threshold", () => {
+    const lazy = { ...stage("QUOTATION_SENT"), staleDays: 10 };
+    expect(run(snap({ leads: [lead({ stage: lazy, lastActivityAt: d(4), openTasks: [], contacted: true })] }))).toEqual([]);
   });
 });
 

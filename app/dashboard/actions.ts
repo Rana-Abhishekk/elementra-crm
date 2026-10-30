@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { CompanyKind, ContactKind, DealStage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
+import { canEditLead } from "@/lib/auth/scope";
 import { normalisePhone } from "@/lib/domain/phone";
 
 const text = (form: FormData, key: string) => {
@@ -12,7 +13,7 @@ const text = (form: FormData, key: string) => {
 };
 
 export async function createCompany(form: FormData) {
-  await requireUser();
+  await requirePermission("leads.create");
   const name = text(form, "name");
   if (!name) return;
   const kind = text(form, "kind") as CompanyKind | null;
@@ -23,15 +24,19 @@ export async function createCompany(form: FormData) {
 }
 
 export async function createContact(form: FormData) {
-  const user = await requireUser();
+  const user = await requirePermission("leads.create");
   const firstName = text(form, "firstName");
   if (!firstName) return;
   const kind = text(form, "kind") as ContactKind | null;
+  // One contact per phone number (Contact.phoneE164 is unique)
+  const phoneE164 = normalisePhone(text(form, "phone"))?.e164 ?? null;
+  const existing = phoneE164 ? await prisma.contact.findUnique({ where: { phoneE164 }, select: { firstName: true, lastName: true } }) : null;
+  if (existing) throw new Error(`${phoneE164} already belongs to ${existing.firstName} ${existing.lastName ?? ""}`.trim() + ".");
   await prisma.contact.create({
     data: {
       kind: kind && kind in ContactKind ? kind : ContactKind.CUSTOMER,
       // Normalised copy so the CRM recognises this person if they enquire later
-      phoneE164: normalisePhone(text(form, "phone"))?.e164 ?? null,
+      phoneE164,
       firstName,
       lastName: text(form, "lastName"),
       email: text(form, "email")?.toLowerCase(),
@@ -45,7 +50,7 @@ export async function createContact(form: FormData) {
 }
 
 export async function createDeal(form: FormData) {
-  const user = await requireUser();
+  const user = await requirePermission("leads.create");
   const title = text(form, "title");
   if (!title) return;
   const rupees = Number(text(form, "amount") ?? 0);
@@ -65,9 +70,12 @@ export async function createDeal(form: FormData) {
 }
 
 export async function updateDealStage(dealId: string, form: FormData) {
-  await requireUser();
+  const user = await requirePermission("leads.edit");
   const stage = text(form, "stage") as DealStage | null;
   if (!stage || !(stage in DealStage)) return;
+  // Deals that came from a lead follow the lead's visibility
+  const deal = await prisma.deal.findUnique({ where: { id: dealId }, include: { lead: true } });
+  if (!deal || (deal.lead && !canEditLead(user, deal.lead))) throw new Error("Deal not found.");
   await prisma.deal.update({ where: { id: dealId }, data: { stage } });
   revalidatePath("/dashboard/deals");
   revalidatePath("/dashboard");

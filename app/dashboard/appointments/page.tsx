@@ -3,6 +3,7 @@ import { CalendarX } from "lucide-react";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { leadWhere } from "@/lib/auth/scope";
 import { EmptyState, PageHeader, Chip, Tabs } from "@/components/ui";
 import { formatIST, istDateKey, startOfIstDay } from "@/lib/domain/time";
 import { shortBranch } from "@/lib/domain/routing/decide";
@@ -20,12 +21,11 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
   const user = await requireUser();
   const range = (await searchParams).range === "past" ? "past" : "upcoming";
   const now = new Date();
+  // Visits you host, visits at your branches (BRANCH scope), visits for leads you can see
   const scope: Prisma.AppointmentWhereInput =
-    user.role === "OWNER" || user.role === "ADMIN"
+    user.scope === "ALL"
       ? {}
-      : user.role === "SALES_MANAGER"
-        ? { OR: [{ branchId: user.branchId ?? "" }, { hostId: user.id }] }
-        : { OR: [{ hostId: user.id }, { lead: { ownerId: user.id } }] };
+      : { OR: [{ hostId: user.id }, { lead: leadWhere(user) }, ...(user.scope === "BRANCH" ? [{ branchId: { in: user.branchIds } }] : [])] };
   const when: Prisma.AppointmentWhereInput =
     range === "past" ? { scheduledAt: { lt: startOfIstDay(now), gte: startOfIstDay(now, -30) } } : { scheduledAt: { gte: startOfIstDay(now), lt: startOfIstDay(now, 15) } };
   const appts = await prisma.appointment.findMany({

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requirePageRole } from "@/lib/access";
+import { can, requirePagePermission } from "@/lib/auth";
 import { getSettings } from "@/lib/data/settings";
 import { PageHeader } from "@/components/ui";
 import { RULES } from "@/lib/domain/reminders/rules";
@@ -8,7 +8,7 @@ import { startOfIstDay } from "@/lib/domain/time";
 import { AutomationCards, RunNow, type RuleCard } from "./automation-cards";
 
 export default async function AutomationsPage() {
-  const user = await requirePageRole("OWNER", "ADMIN", "SALES_MANAGER");
+  const user = await requirePagePermission("automations.manage");
   const settings = await getSettings();
   const today = startOfIstDay(new Date());
   const weekAgo = startOfIstDay(new Date(), -6);
@@ -47,7 +47,7 @@ export default async function AutomationsPage() {
       <AutomationCards
         cards={cards}
         settings={settings}
-        canEditSla={user.role !== "SALES_MANAGER"}
+        canEditSla={can(user, "settings.manage")}
         lastRun={(lastRun?.value as unknown as EngineSummary | null) ?? null}
       />
     </div>

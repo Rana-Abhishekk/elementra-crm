@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { signIn, signOut } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 // Demo-mode only: the demo users' shared password (02_REFERENCE_DATA §5)
@@ -9,8 +9,15 @@ const DEMO_PASSWORD = "Demo@1234";
 
 export function LoginForm({ quickLogins = [] }: { quickLogins?: { label: string; who: string; email: string }[] }) {
   const router = useRouter();
-  const callbackUrl = useSearchParams().get("callbackUrl") || "/dashboard";
-  const [error, setError] = useState("");
+  const params = useSearchParams();
+  const callbackUrl = params.get("callbackUrl") || "/dashboard";
+  const deactivated = params.get("reason") === "deactivated";
+  const [error, setError] = useState(deactivated ? "Your account has been deactivated. Ask your manager or the admin if this is a mistake." : "");
+
+  // The session cookie of a deactivated user is still there: clear it
+  useEffect(() => {
+    if (deactivated) void signOut({ redirect: false });
+  }, [deactivated]);
   const [pending, setPending] = useState(false);
 
   async function login(email: FormDataEntryValue | null, password: FormDataEntryValue | null) {

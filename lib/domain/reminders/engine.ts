@@ -6,7 +6,6 @@ import { getSettings } from "@/lib/data/settings";
 import { notify } from "@/lib/domain/notify";
 import { sendTemplate } from "@/lib/domain/messaging/send";
 import { recomputeNextFollowUp } from "@/lib/domain/leads/workflow";
-import { OPEN_STAGES } from "@/lib/domain/stages";
 import { shortBranch } from "@/lib/domain/routing/decide";
 import { startOfIstDay } from "@/lib/domain/time";
 import { evaluateRules, type Intent, type Snapshot } from "./rules";
@@ -27,7 +26,7 @@ export async function loadSnapshot(now: Date): Promise<Snapshot> {
   const tenDaysAgo = new Date(now.getTime() - 10 * 86400_000);
   const leads = await prisma.lead.findMany({
     where: {
-      OR: [{ stage: { in: OPEN_STAGES } }, { stage: "CLOSED_LOST", lostReason: { in: ["ON_HOLD", "TIMELINE"] }, reviveAt: { lte: now } }],
+      OR: [{ stage: { category: "OPEN" } }, { stage: { category: "LOST", askReviveDate: true }, reviveAt: { lte: now } }],
     },
     select: {
       id: true,
@@ -35,8 +34,7 @@ export async function loadSnapshot(now: Date): Promise<Snapshot> {
       firstName: true,
       lastName: true,
       salutation: true,
-      stage: true,
-      lostReason: true,
+      stage: { select: { id: true, label: true, category: true, isInitial: true, askReviveDate: true, staleDays: true, staleTaskType: true } },
       reviveAt: true,
       ownerId: true,
       branchId: true,
@@ -66,7 +64,11 @@ export async function loadSnapshot(now: Date): Promise<Snapshot> {
       where: { status: "SCHEDULED", scheduledAt: { gte: new Date(now.getTime() - 3 * 86400_000), lte: new Date(now.getTime() + 48 * 3600_000) } },
       include: { lead: { select: { firstName: true, lastName: true, salutation: true, refCode: true, phoneE164: true } }, branch: { select: { name: true } }, host: { select: { name: true } } },
     }),
-    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true, branchId: true } }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, branchId: true, role: { select: { scope: true, isLocked: true, permissions: true } }, extraBranches: { select: { id: true } } },
+      orderBy: { name: "asc" },
+    }),
     prisma.lead.count({ where: { createdAt: { gte: yStart, lt: tStart } } }),
     prisma.lead.count({ where: { createdAt: { gte: yStart, lt: tStart }, locationStatus: "OUT_OF_AREA" } }),
     prisma.lead.count({ where: { createdAt: { gte: yStart, lt: tStart }, locationStatus: "NEEDS_LOCATION" } }),
@@ -92,7 +94,15 @@ export async function loadSnapshot(now: Date): Promise<Snapshot> {
       scheduledAt: a.scheduledAt,
       hasPhone: !!a.lead.phoneE164,
     })),
-    users,
+    users: users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      isOwner: u.role.isLocked,
+      scope: u.role.scope,
+      branchId: u.branchId,
+      branchIds: [...(u.branchId ? [u.branchId] : []), ...u.extraBranches.map((b) => b.id)],
+      handlesNeedsLocation: u.role.permissions.includes("queues.needsLocation"),
+    })),
     yesterday: { newLeads: yNew, outOfArea: yOoa, needsLocation: yNeeds },
     overdueByUser: Object.fromEntries(overdue.map((o) => [o.assigneeId, o._count])),
   };

@@ -1,39 +1,47 @@
 // Synthetic reference data (02_REFERENCE_DATA §5, §6, §9.6). No real people.
-import type { Role, TemplateCategory, TemplateStatus } from "@prisma/client";
+import type { TemplateCategory, TemplateStatus } from "@prisma/client";
 
 export const DEMO_PASSWORD = "Demo@1234";
 
 export interface DemoUser {
   name: string;
   email: string;
-  role: Role;
+  /** Role name from the Role master (lib/domain/masters/defaults.ts) */
+  role: string;
   branchCode: string | null;
+  extraBranchCodes?: string[];
   receivesLeads: boolean;
   phone: string;
+  employeeCode: string;
+  designation: string;
+  reportsTo?: string; // email
 }
 
 export const DEMO_USERS: DemoUser[] = [
-  { name: "Aarav Mehta", email: "aarav@elementra.test", role: "OWNER", branchCode: null, receivesLeads: false, phone: "+919000090001" },
-  { name: "Ananya Rao", email: "ananya@elementra.test", role: "PRESALES", branchCode: "ONL", receivesLeads: true, phone: "+919000090002" },
-  { name: "Sara Khan", email: "sara@elementra.test", role: "PRESALES", branchCode: "ONL", receivesLeads: true, phone: "+919000090003" },
-  { name: "Kabir Malhotra", email: "kabir@elementra.test", role: "SALES_MANAGER", branchCode: "WOR", receivesLeads: false, phone: "+919000090004" },
-  { name: "Ishita Desai", email: "ishita@elementra.test", role: "SALES_REP", branchCode: "WOR", receivesLeads: true, phone: "+919000090005" },
-  { name: "Rohan Pillai", email: "rohan@elementra.test", role: "SALES_REP", branchCode: "WOR", receivesLeads: true, phone: "+919000090006" },
-  { name: "Farah Siddiqui", email: "farah@elementra.test", role: "SALES_MANAGER", branchCode: "AND", receivesLeads: false, phone: "+919000090007" },
-  { name: "Arjun Nair", email: "arjun@elementra.test", role: "SALES_REP", branchCode: "AND", receivesLeads: true, phone: "+919000090008" },
-  { name: "Meera Joshi", email: "meera@elementra.test", role: "SALES_REP", branchCode: "AND", receivesLeads: true, phone: "+919000090009" },
-  { name: "Tanvi Shah", email: "tanvi@elementra.test", role: "SALES_MANAGER", branchCode: "TAR", receivesLeads: true, phone: "+919000090010" },
-  { name: "Dev Bhatia", email: "dev@elementra.test", role: "SALES_REP", branchCode: "TAR", receivesLeads: true, phone: "+919000090011" },
-  { name: "Sneha Kulkarni", email: "sneha@elementra.test", role: "SALES_MANAGER", branchCode: "PUN", receivesLeads: true, phone: "+919000090012" },
-  { name: "Omkar Patil", email: "omkar@elementra.test", role: "SALES_REP", branchCode: "PUN", receivesLeads: true, phone: "+919000090013" },
+  { name: "Aarav Mehta", email: "aarav@elementra.test", role: "Super Admin", branchCode: null, receivesLeads: false, phone: "+919000090001", employeeCode: "EMP-001", designation: "Director" },
+  { name: "Ananya Rao", email: "ananya@elementra.test", role: "Online Desk", branchCode: "ONL", receivesLeads: true, phone: "+919000090002", employeeCode: "EMP-002", designation: "Pre-sales Executive", reportsTo: "aarav@elementra.test" },
+  { name: "Sara Khan", email: "sara@elementra.test", role: "Online Desk", branchCode: "ONL", receivesLeads: true, phone: "+919000090003", employeeCode: "EMP-003", designation: "Pre-sales Executive", reportsTo: "aarav@elementra.test" },
+  { name: "Kabir Malhotra", email: "kabir@elementra.test", role: "Branch Manager", branchCode: "WOR", receivesLeads: false, phone: "+919000090004", employeeCode: "EMP-004", designation: "Branch Manager", reportsTo: "aarav@elementra.test" },
+  { name: "Ishita Desai", email: "ishita@elementra.test", role: "Sales Executive", branchCode: "WOR", receivesLeads: true, phone: "+919000090005", employeeCode: "EMP-005", designation: "Sales Executive", reportsTo: "kabir@elementra.test" },
+  { name: "Rohan Pillai", email: "rohan@elementra.test", role: "Sales Executive", branchCode: "WOR", receivesLeads: true, phone: "+919000090006", employeeCode: "EMP-006", designation: "Sales Executive", reportsTo: "kabir@elementra.test" },
+  { name: "Farah Siddiqui", email: "farah@elementra.test", role: "Branch Manager", branchCode: "AND", receivesLeads: false, phone: "+919000090007", employeeCode: "EMP-007", designation: "Branch Manager", reportsTo: "aarav@elementra.test" },
+  { name: "Arjun Nair", email: "arjun@elementra.test", role: "Sales Executive", branchCode: "AND", receivesLeads: true, phone: "+919000090008", employeeCode: "EMP-008", designation: "Sales Executive", reportsTo: "farah@elementra.test" },
+  { name: "Meera Joshi", email: "meera@elementra.test", role: "Sales Executive", branchCode: "AND", receivesLeads: true, phone: "+919000090009", employeeCode: "EMP-009", designation: "Sales Executive", reportsTo: "farah@elementra.test" },
+  { name: "Tanvi Shah", email: "tanvi@elementra.test", role: "Branch Manager", branchCode: "TAR", receivesLeads: true, phone: "+919000090010", employeeCode: "EMP-010", designation: "Branch Manager", reportsTo: "aarav@elementra.test" },
+  { name: "Dev Bhatia", email: "dev@elementra.test", role: "Sales Executive", branchCode: "TAR", receivesLeads: true, phone: "+919000090011", employeeCode: "EMP-011", designation: "Sales Executive", reportsTo: "tanvi@elementra.test" },
+  { name: "Sneha Kulkarni", email: "sneha@elementra.test", role: "Branch Manager", branchCode: "PUN", receivesLeads: true, phone: "+919000090012", employeeCode: "EMP-012", designation: "Branch Manager", reportsTo: "aarav@elementra.test" },
+  { name: "Vikram Sethi", email: "vikram@elementra.test", role: "Branch Manager", branchCode: "WOR", extraBranchCodes: ["AND", "TAR"], receivesLeads: false, phone: "+919000090014", employeeCode: "EMP-014", designation: "Regional Manager — Mumbai", reportsTo: "aarav@elementra.test" },
+  { name: "Omkar Patil", email: "omkar@elementra.test", role: "Sales Executive", branchCode: "PUN", receivesLeads: true, phone: "+919000090013", employeeCode: "EMP-013", designation: "Sales Executive", reportsTo: "sneha@elementra.test" },
 ];
 
 export const QUICK_LOGINS = [
-  { label: "Owner", who: "Aarav", email: "aarav@elementra.test" },
+  { label: "Super Admin", who: "Aarav", email: "aarav@elementra.test" },
   { label: "Online Desk", who: "Ananya", email: "ananya@elementra.test" },
   { label: "Worli Manager", who: "Kabir", email: "kabir@elementra.test" },
-  { label: "Andheri Rep", who: "Arjun", email: "arjun@elementra.test" },
-  { label: "Pune Rep", who: "Omkar", email: "omkar@elementra.test" },
+  { label: "Regional Mgr", who: "Vikram", email: "vikram@elementra.test" },
+  { label: "Pune Manager", who: "Sneha", email: "sneha@elementra.test" },
+  { label: "Andheri Exec", who: "Arjun", email: "arjun@elementra.test" },
+  { label: "Pune Exec", who: "Omkar", email: "omkar@elementra.test" },
 ];
 
 export interface TemplateSeed {

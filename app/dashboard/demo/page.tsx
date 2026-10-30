@@ -1,13 +1,13 @@
 import { notFound } from "next/navigation";
 import { FeatureBadge } from "@/components/feature-badge";
 import { PageHeader } from "@/components/ui";
-import { isDemoMode, requirePageRole } from "@/lib/access";
+import { isDemoMode, requirePagePermission } from "@/lib/auth";
 import { SCENARIOS } from "@/lib/demo/scenarios";
 import { DemoPanel } from "./demo-panel";
 
 export default async function DemoPage() {
   if (!isDemoMode()) notFound();
-  await requirePageRole("OWNER", "ADMIN");
+  await requirePagePermission("demo.use");
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader

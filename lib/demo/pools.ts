@@ -1,5 +1,4 @@
 // Synthetic pools (02_REFERENCE_DATA §9.5). Deliberately avoid every first name in the client's sheet.
-import type { LeadSource } from "@prisma/client";
 
 export const FIRST_NAMES = [
   "Rhea", "Aditya", "Kavya", "Nikhil", "Pooja", "Aniket", "Ruhi", "Varun", "Ritika", "Kunal", "Kriti", "Rahul", "Aisha", "Pranav", "Tanya",
@@ -44,8 +43,9 @@ export const CAMPAIGN_ADS = ["Trust – Reel", "Kitchen walkthrough – Carousel
 export const CAMPAIGN_FORM = "Lead form – Bespoke products V4";
 export const campaignForMonth = (monthName: string) => `Elementra – Leads – ${monthName} 2026`;
 
-export const SOURCE_WEIGHTS: readonly (readonly [LeadSource, number])[] = [
-  ["INSTAGRAM_PAID", 70], ["FACEBOOK", 8], ["INSTAGRAM_ORGANIC", 4], ["WEBSITE", 6], ["WHATSAPP", 4], ["GOOGLE", 3], ["REFERENCE", 3], ["WALK_IN", 1], ["CALL", 1],
+// Seeded Source ids (lib/domain/masters/defaults.ts)
+export const SOURCE_WEIGHTS: readonly (readonly [string, number])[] = [
+  ["src_instagram_paid", 70], ["src_facebook", 8], ["src_instagram_organic", 4], ["src_website", 6], ["src_whatsapp", 4], ["src_google", 3], ["src_reference", 3], ["src_walk_in", 1], ["src_call", 1],
 ];
 
 export const NOTE_SNIPPETS = [

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/access";
+import { requirePermission } from "@/lib/auth";
 import { writeAudit } from "@/lib/domain/audit";
 import { ingestLead } from "@/lib/domain/leads/ingest";
 import { mapMetaCsvRow } from "@/lib/domain/integrations/metaCsv";
@@ -25,7 +25,7 @@ const rowsSchema = z.array(z.record(z.string(), z.string())).min(1, "The file ha
 
 export async function importMetaCsvAction(fileName: string, rows: Record<string, string>[]): Promise<{ ok: true; summary: ImportSummary } | { ok: false; error: string }> {
   try {
-    const user = await requireRole("OWNER", "ADMIN", "PRESALES");
+    const user = await requirePermission("imports.run");
     const data = rowsSchema.parse(rows);
     const s: Omit<ImportSummary, "jobId"> = { total: data.length, created: 0, duplicates: 0, failed: 0, routed: 0, needsLocation: 0, outOfArea: 0, errors: [], duplicateRows: [] };
     for (const [i, row] of data.entries()) {

@@ -1,12 +1,12 @@
-// Dashboard metrics (spec §14 definitions), scoped by leadWhereForUser.
+// Dashboard metrics (spec §14 definitions), scoped by leadWhere (lib/auth/scope.ts).
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { leadWhereForUser } from "@/lib/access";
-import type { SessionUser } from "@/lib/auth";
+import type { CurrentUser } from "@/lib/auth";
+import { leadWhere } from "@/lib/auth/scope";
 import { getSettings } from "@/lib/data/settings";
+import { getMasters } from "@/lib/data/masters";
 import { isSlaBreached } from "@/lib/data/sla";
-import { OPEN_STAGES, STAGE_ORDER, STAGE_SHORT } from "@/lib/domain/stages";
-import { SOURCE_LABEL } from "@/lib/domain/labels";
+import { openStages, shortLabel } from "@/lib/domain/stages";
 import { shortBranch } from "@/lib/domain/routing/decide";
 import { formatIST, istDateKey, startOfIstDay, wallTime, workingMinutesBetween } from "@/lib/domain/time";
 
@@ -32,28 +32,30 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-export async function dashboardData(user: SessionUser, period: Period, now = new Date()) {
-  const scope = leadWhereForUser(user);
+export async function dashboardData(user: Pick<CurrentUser, "id" | "scope" | "branchIds" | "permissions">, period: Period, now = new Date(), pipelineId?: string) {
+  const scope = leadWhere(user);
   const from = periodStart(period, now);
-  const settings = await getSettings();
+  const [settings, masters] = await Promise.all([getSettings(), getMasters()]);
+  const funnelPipeline = (pipelineId && masters.pipelineById.get(pipelineId)) || masters.defaultPipeline;
   const inPeriod: Prisma.LeadWhereInput = { AND: [scope, { createdAt: { gte: from } }] };
-  const openScope: Prisma.LeadWhereInput = { AND: [scope, { stage: { in: OPEN_STAGES } }] };
+  const openScope: Prisma.LeadWhereInput = { AND: [scope, { stage: { category: "OPEN" } }] };
   const thirty = startOfIstDay(now, -29);
 
   const [newLeads, cohort, newOpen, overdueTasks, ooa, visits, pipeline, won, bySource, byStage, byBranch, daily, responses, branches, attention, recent] = await Promise.all([
     prisma.lead.count({ where: inPeriod }),
-    prisma.lead.groupBy({ by: ["stage"], where: inPeriod, _count: true }),
-    prisma.lead.findMany({ where: { AND: [openScope, { stage: "NEW" }] }, select: { stage: true, firstContactedAt: true, assignedAt: true } }),
+    prisma.lead.groupBy({ by: ["stageId"], where: inPeriod, _count: true }),
+    prisma.lead.findMany({ where: { AND: [openScope, { stage: { isInitial: true } }] }, select: { stage: { select: { isInitial: true } }, firstContactedAt: true, assignedAt: true } }),
     prisma.task.findMany({
       where: { status: "OPEN", type: { in: ["FOLLOW_UP", "FIRST_CALL", "QUOTATION_FOLLOW_UP"] }, dueAt: { lt: now }, lead: scope },
       select: { assignee: { select: { name: true } } },
     }),
     prisma.lead.count({ where: { AND: [inPeriod, { locationStatus: "OUT_OF_AREA" }] } }),
     prisma.appointment.count({ where: { createdAt: { gte: from }, lead: scope } }),
-    prisma.lead.findMany({ where: { AND: [openScope, { stage: { in: ["QUOTATION_SENT", "NEGOTIATION", "TOKEN_RECEIVED"] } }] }, select: { estimatedValueInr: true, orderValueInr: true } }),
-    prisma.lead.aggregate({ where: { AND: [scope, { stage: "CLOSED_WON", stageChangedAt: { gte: from } }] }, _sum: { orderValueInr: true }, _count: true }),
-    prisma.lead.groupBy({ by: ["source"], where: { AND: [scope, { createdAt: { gte: thirty } }] }, _count: true }),
-    prisma.lead.groupBy({ by: ["stage"], where: openScope, _count: true }),
+    // "Pipeline value" = open leads in late stages (probability ≥ 50% in the stage master)
+    prisma.lead.findMany({ where: { AND: [openScope, { stage: { probability: { gte: 50 } } }] }, select: { estimatedValueInr: true, orderValueInr: true } }),
+    prisma.lead.aggregate({ where: { AND: [scope, { stage: { category: "WON" }, stageChangedAt: { gte: from } }] }, _sum: { orderValueInr: true }, _count: true }),
+    prisma.lead.groupBy({ by: ["sourceId"], where: { AND: [scope, { createdAt: { gte: thirty } }] }, _count: true }),
+    prisma.lead.groupBy({ by: ["stageId"], where: { AND: [openScope, { pipelineId: funnelPipeline.id }] }, _count: true }),
     prisma.lead.groupBy({ by: ["branchId", "locationStatus"], where: { AND: [scope, { createdAt: { gte: thirty } }] }, _count: true }),
     prisma.lead.findMany({ where: { AND: [scope, { createdAt: { gte: thirty } }] }, select: { createdAt: true } }),
     prisma.lead.findMany({ where: { AND: [scope, { createdAt: { gte: thirty }, firstContactedAt: { not: null } }] }, select: { createdAt: true, firstContactedAt: true, branchId: true } }),
@@ -72,8 +74,10 @@ export async function dashboardData(user: SessionUser, period: Period, now = new
     }),
   ]);
 
-  const wonN = cohort.find((c) => c.stage === "CLOSED_WON")?._count ?? 0;
-  const lostN = cohort.find((c) => c.stage === "CLOSED_LOST")?._count ?? 0;
+  const catOf = (stageId: string) => masters.stageById.get(stageId)?.category;
+  const wonN = cohort.filter((c) => catOf(c.stageId) === "WON").reduce((n, c) => n + c._count, 0);
+  const lostN = cohort.filter((c) => catOf(c.stageId) === "LOST").reduce((n, c) => n + c._count, 0);
+  const sourceRows = bySource.map((s) => ({ label: masters.sourceById.get(s.sourceId)?.name ?? "—", value: s._count })).sort((a, b) => b.value - a.value);
   const branchName = (id: string | null) => {
     const b = branches.find((x) => x.id === id);
     return b ? (b.kind === "ONLINE_DESK" ? "Online Desk" : shortBranch(b.name)) : null;
@@ -117,10 +121,11 @@ export async function dashboardData(user: SessionUser, period: Period, now = new
       conversion: wonN + lostN >= 5 ? Math.round((wonN / (wonN + lostN)) * 100) : null,
       conversionBase: wonN + lostN,
     },
-    funnel: OPEN_STAGES.map((s) => ({ label: STAGE_SHORT[s], value: byStage.find((x) => x.stage === s)?._count ?? 0 })),
-    sources: bySource
-      .map((s) => ({ label: SOURCE_LABEL[s.source], value: s._count, highlight: s.source === "INSTAGRAM_PAID" }))
-      .sort((a, b) => b.value - a.value),
+    pipeline: { id: funnelPipeline.id, name: funnelPipeline.name },
+    pipelines: masters.pipelines.filter((p) => p.isActive).map((p) => ({ id: p.id, name: p.name })),
+    funnel: openStages(masters.stages, funnelPipeline.id).map((s) => ({ label: shortLabel(s.label), value: byStage.find((x) => x.stageId === s.id)?._count ?? 0 })),
+    // The biggest source is highlighted
+    sources: sourceRows.map((s, i) => ({ ...s, highlight: i === 0 })),
     branches: [...branchCounts.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
     daily: days.map(({ label, value }) => ({ label, value })),
     overdueByRep: [...overdueByRep.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
@@ -130,6 +135,5 @@ export async function dashboardData(user: SessionUser, period: Period, now = new
       .sort((a, b) => a.value - b.value),
     attention,
     recent,
-    stageOrder: STAGE_ORDER,
   };
 }

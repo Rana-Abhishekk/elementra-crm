@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { Product } from "@prisma/client";
 import { ingestLead } from "@/lib/domain/leads/ingest";
 import { splitName } from "@/lib/domain/integrations/metaLead";
 
@@ -10,7 +9,8 @@ const bodySchema = z.object({
   email: z.string().trim().max(200).optional(),
   pincode: z.string().trim().max(10).optional(),
   area: z.string().trim().max(300).optional(),
-  products: z.array(z.enum(Product)).optional(),
+  // Product names ("Kitchen") or Meta answer keys ("elementra_kitchens") from the Product master
+  products: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
   message: z.string().trim().max(2000).optional(),
 });
 
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     siteAddress: b.area,
     products: b.products,
     notes: b.message ? `Website message: ${b.message}` : null,
-    source: "WEBSITE",
+    source: "web:form",
     channel: "WEBSITE_FORM",
   });
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 422 });

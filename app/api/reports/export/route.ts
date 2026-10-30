@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getOptionalUser } from "@/lib/auth";
-import { isManager } from "@/lib/access";
+import { can } from "@/lib/auth";
 import { parseReportFilters, reportsData } from "@/lib/data/reports";
 import { formatIST } from "@/lib/domain/time";
 
@@ -8,7 +8,7 @@ const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
 export async function GET(req: NextRequest) {
   const user = await getOptionalUser();
-  if (!user || !isManager(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user || !can(user, "reports.view")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const sp = Object.fromEntries(req.nextUrl.searchParams);
   const f = parseReportFilters(sp);
   const d = await reportsData(user, f);

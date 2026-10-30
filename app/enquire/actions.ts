@@ -1,6 +1,5 @@
 "use server";
 
-import { Product } from "@prisma/client";
 import { ingestLead } from "@/lib/domain/leads/ingest";
 import { splitName, possessionFrom } from "@/lib/domain/integrations/metaLead";
 
@@ -20,7 +19,7 @@ export async function submitEnquiry(_prev: EnquiryState, form: FormData): Promis
   const name = str(form, "name");
   if (!name) return { status: "error", error: "Please tell us your name." };
   if (!str(form, "phone")) return { status: "error", error: "Please add a phone number so we can call you." };
-  const products = form.getAll("products").filter((p): p is Product => typeof p === "string" && p in Product);
+  const products = form.getAll("products").filter((p): p is string => typeof p === "string" && p.length > 0 && p.length < 64);
   const timeline = str(form, "possession");
   const res = await ingestLead({
     ...splitName(name),
@@ -31,7 +30,7 @@ export async function submitEnquiry(_prev: EnquiryState, form: FormData): Promis
     products,
     possessionDate: possessionFrom(timeline ?? undefined, new Date()),
     notes: str(form, "message") ? `Website message: ${str(form, "message")}` : null,
-    source: "WEBSITE",
+    source: "web:form",
     channel: "WEBSITE_FORM",
   });
   if (!res.ok) return { status: "error", error: res.error };

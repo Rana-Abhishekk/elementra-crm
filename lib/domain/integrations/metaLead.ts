@@ -1,6 +1,6 @@
 // Meta Lead Ads → IngestInput (02_REFERENCE_DATA §7). Works with or without the recommended
 // site_pincode / possession_timeline questions.
-import type { LeadSource, Priority, Product } from "@prisma/client";
+import type { Priority } from "@prisma/client";
 import type { IngestInput } from "@/lib/domain/leads/ingest";
 
 export interface MetaGraphLead {
@@ -19,34 +19,20 @@ export interface MetaGraphLead {
   field_data?: { name: string; values: string[] }[];
 }
 
-const PRODUCT_ANSWERS: Record<string, Product> = {
-  elementra_kitchens: "KITCHEN",
-  elementra_kitchen: "KITCHEN",
-  elementra_wardrobes: "WARDROBES",
-  elementra_furniture: "FURNITURE",
-  elementra_appliances: "APPLIANCES",
-  elementra_beds: "BEDS",
-};
-
-/** "elementra_kitchens" or "Kitchen, Wardrobes" → products */
-export function mapProducts(raw: string | string[] | null | undefined): Product[] {
-  const parts = (Array.isArray(raw) ? raw : [raw ?? ""]).flatMap((v) => v.split(/[,|]/)).map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const out = new Set<Product>();
-  for (const p of parts) {
-    const key = p.replace(/\s+/g, "_");
-    const mapped =
-      PRODUCT_ANSWERS[key] ??
-      PRODUCT_ANSWERS[`elementra_${key}`] ??
-      (p.startsWith("kitchen") ? "KITCHEN" : p.startsWith("wardrobe") ? "WARDROBES" : p.startsWith("furniture") ? "FURNITURE" : p.startsWith("appliance") ? "APPLIANCES" : p.startsWith("bed") ? "BEDS" : "OTHERS");
-    out.add(mapped);
-  }
-  return [...out];
+/**
+ * "elementra_kitchens" or "Kitchen, Wardrobes" → product tokens. ingestLead() matches them against the
+ * Product master (Meta answer keys, then names), so a new product needs no code change.
+ */
+export function mapProducts(raw: string | string[] | null | undefined): string[] {
+  const parts = (Array.isArray(raw) ? raw : [raw ?? ""]).flatMap((v) => v.split(/[,|]/)).map((s) => s.trim()).filter(Boolean);
+  return [...new Set(parts)];
 }
 
-export function metaSource(platform: string | null | undefined, isOrganic: boolean | string | null | undefined): LeadSource {
+/** Integration key for the Source master: meta:ig:paid · meta:ig:organic · meta:fb:paid · meta:fb:organic */
+export function metaSource(platform: string | null | undefined, isOrganic: boolean | string | null | undefined): string {
   const organic = isOrganic === true || String(isOrganic).toLowerCase() === "true";
-  if ((platform ?? "").toLowerCase() === "fb") return "FACEBOOK";
-  return organic ? "INSTAGRAM_ORGANIC" : "INSTAGRAM_PAID";
+  const p = (platform ?? "").toLowerCase() === "fb" ? "fb" : "ig";
+  return `meta:${p}:${organic ? "organic" : "paid"}`;
 }
 
 export function splitName(full: string): { firstName: string; lastName: string | null } {

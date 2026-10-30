@@ -2,7 +2,8 @@ import Link from "next/link";
 import { ArrowLeft, MessageCircle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { isDemoMode, leadWhereForUser } from "@/lib/access";
+import { isDemoMode } from "@/lib/auth";
+import { leadWhere } from "@/lib/auth/scope";
 import { progressSimulatedMessages } from "@/lib/data/messages";
 import { FeatureBadge } from "@/components/feature-badge";
 import { EmptyState, PageHeader } from "@/components/ui";
@@ -17,7 +18,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   const selectedId = (await searchParams).lead;
   await progressSimulatedMessages({ createdAt: { gte: new Date(new Date().getTime() - 3600_000) } });
 
-  const scope = leadWhereForUser(user);
+  const scope = leadWhere(user);
   const convos = await prisma.lead.findMany({
     where: { AND: [scope, { messages: { some: {} } }] },
     select: {

@@ -1,12 +1,12 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requirePageRole } from "@/lib/access";
+import { requirePagePermission } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { formatIST } from "@/lib/domain/time";
 
 export default async function AuditPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  await requirePageRole("OWNER", "ADMIN");
+  await requirePagePermission("audit.view");
   const sp = await searchParams;
   const where: Prisma.AuditLogWhereInput = {
     ...(sp.actor ? { actorId: sp.actor === "system" ? null : sp.actor } : {}),

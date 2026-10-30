@@ -19,12 +19,12 @@ export default async function CompaniesPage({ searchParams }: { searchParams: Pr
     include: {
       _count: { select: { contacts: true, deals: true } },
       // Partner view: leads where one of this firm's architects is involved
-      contacts: { where: { kind: "ARCHITECT" }, select: { influencedLeads: { select: { stage: true, orderValueInr: true } } } },
+      contacts: { where: { kind: "ARCHITECT" }, select: { influencedLeads: { select: { stage: { select: { category: true } }, orderValueInr: true } } } },
     },
   });
   const partner = (c: (typeof companies)[number]) => {
     const leads = c.contacts.flatMap((x) => x.influencedLeads);
-    return { influenced: leads.length, won: leads.filter((l) => l.stage === "CLOSED_WON").reduce((s, l) => s + (l.orderValueInr ?? 0), 0) };
+    return { influenced: leads.length, won: leads.filter((l) => l.stage.category === "WON").reduce((s, l) => s + (l.orderValueInr ?? 0), 0) };
   };
 
   return (

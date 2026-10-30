@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { canEditLead } from "@/lib/access";
+import { canEditLead } from "@/lib/auth/scope";
 import { writeAudit } from "@/lib/domain/audit";
 import { recomputeNextFollowUp } from "@/lib/domain/leads/workflow";
-import { STAGE_ORDER, stageLabel } from "@/lib/domain/stages";
+import { stageByKey } from "@/lib/domain/stages";
+import { loadMasters } from "@/lib/data/masters";
+import { stageMeta } from "@/lib/domain/leads/workflow";
 import { addWorkingMinutes, formatIST } from "@/lib/domain/time";
 import { getSettings } from "@/lib/data/settings";
 import { shortBranch } from "@/lib/domain/routing/decide";
@@ -29,14 +31,17 @@ export async function markVisitedAction(appointmentId: string): Promise<Result> 
   try {
     const { user, appt } = await load(appointmentId);
     const now = new Date();
-    const discovery = STAGE_ORDER.indexOf("DISCOVERY_MEETING");
-    const moveStage = STAGE_ORDER.indexOf(appt.lead.stage) < discovery;
+    // A visit moves earlier open stages to the stage keyed DISCOVERY_MEETING (if the pipeline has one)
+    const masters = await loadMasters();
+    const current = masters.stageById.get(appt.lead.stageId)!;
+    const discovery = stageByKey(masters.stages, appt.lead.pipelineId, "DISCOVERY_MEETING");
+    const moveStage = !!discovery && current.category === "OPEN" && current.sortOrder < discovery.sortOrder;
     await prisma.$transaction(async (tx) => {
       await tx.appointment.update({ where: { id: appointmentId }, data: { status: "VISITED" } });
       await tx.activity.create({ data: { leadId: appt.leadId, type: "SHOWROOM_VISIT", body: `Visited ${appt.branch.name}${appt.host ? ` (hosted by ${appt.host.name})` : ""}.`, userId: user.id, createdAt: now } });
-      if (moveStage) {
-        await tx.lead.update({ where: { id: appt.leadId }, data: { stage: "DISCOVERY_MEETING", stageChangedAt: now } });
-        await tx.activity.create({ data: { leadId: appt.leadId, type: "STAGE_CHANGE", body: `Stage: ${stageLabel(appt.lead.stage)} → ${stageLabel("DISCOVERY_MEETING")} (showroom visit)`, userId: user.id, createdAt: new Date(now.getTime() + 10) } });
+      if (moveStage && discovery) {
+        await tx.lead.update({ where: { id: appt.leadId }, data: { stageId: discovery.id, stageChangedAt: now } });
+        await tx.activity.create({ data: { leadId: appt.leadId, type: "STAGE_CHANGE", body: `Stage: ${current.label} → ${discovery.label} (showroom visit)`, userId: user.id, meta: stageMeta(current, discovery), createdAt: new Date(now.getTime() + 10) } });
       }
       await tx.lead.update({ where: { id: appt.leadId }, data: { lastActivityAt: now } });
       await writeAudit({ actorId: user.id, action: "appointment.visited", entityType: "Lead", entityId: appt.leadId, summary: `${appt.lead.refCode} visited ${shortBranch(appt.branch.name)}` }, tx);
@@ -44,7 +49,7 @@ export async function markVisitedAction(appointmentId: string): Promise<Result> 
     await closeVisitTasks(appointmentId, now);
     await recomputeNextFollowUp(appt.leadId);
     revalidatePath("/dashboard", "layout");
-    return { ok: true, message: `Marked visited${moveStage ? " · moved to Discovery / Requirement Meeting" : ""}` };
+    return { ok: true, message: `Marked visited${moveStage && discovery ? ` · moved to ${discovery.label}` : ""}` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
   }

@@ -9,6 +9,9 @@ Docs for the first client demo of the Elementra lead-management CRM (Next.js 16 
 | `02_REFERENCE_DATA.md` | Claude Code | Enums in the client's wording, branches, locality map, users, WhatsApp templates (EN/HI), Meta formats, demo scenarios, seed rules |
 | `03_CLIENT_PITCH_AND_DEMO_SCRIPT.md` | You → client | Opener, 15-min demo talk track, status board mapped to the proposal's 5 weeks, sheet insights, Rules Sheet questions, follow-up message |
 | `04_UNDERSTANDING_THE_PROJECT.md` | You | The business, their Excel decoded, the proposal terms, how routing and reminders work inside, code map, integrations, Q&A prep, demo-day checklist |
+| `05_DEMO_REHEARSAL_GUIDE.md` | You | Step-by-step demo script with what to click, say and point at |
+| `06_WEEK2_SPEC_MASTERS_ROLES_QUALIFICATION_CHATBOT.md` | Claude Code (and you) | End of Week 2 milestone: masters (pipelines/statuses, branches, sources, products, areas, other lists), users & roles with branch-based visibility, qualification, duplicates, chatbot, staging. **Overrides 01 where they conflict.** |
+| `07_CLAUDE_PROMPT_WEEK2.md` | You → Claude Code | The prompt to start the Week 2 work, plus follow-up prompts |
 
 Files Claude will create during the build:
 - `project_docs/IMPLEMENTATION_PLAN.md`: audit of the existing code + how the spec maps onto it

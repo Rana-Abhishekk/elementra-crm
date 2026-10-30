@@ -10,7 +10,8 @@ import { FeatureBadge } from "@/components/feature-badge";
 import { Card, CardHeader, Chip } from "@/components/ui";
 import { mapMetaCsvRow } from "@/lib/domain/integrations/metaCsv";
 import { mapSheetRow } from "@/lib/domain/integrations/sheets";
-import { PRODUCT_LABEL, SOURCE_LABEL } from "@/lib/domain/labels";
+import { resolveProducts, resolveSource, type ProductRef, type SourceRef } from "@/lib/domain/masters/resolve";
+import { matchLegacyStatus, type StageRef } from "@/lib/domain/stages";
 import { normalisePhone } from "@/lib/domain/phone";
 import { formatIST } from "@/lib/domain/time";
 import { cn } from "@/lib/utils";
@@ -18,7 +19,17 @@ import { importMetaCsvAction, type ImportSummary } from "./actions";
 
 type Kind = "META_CSV" | "LEGACY_SHEET";
 
-export function ImportWizard() {
+/** The masters, so the preview shows the same source / product / stage the import will use. */
+export interface WizardMasters {
+  sources: SourceRef[];
+  products: ProductRef[];
+  stages: StageRef[];
+  defaultPipelineId: string;
+}
+
+export function ImportWizard({ masters }: { masters: WizardMasters }) {
+  const sourceName = (v: string) => resolveSource(masters.sources, v).source?.name ?? v;
+  const productNames = (tokens: string[]) => resolveProducts(masters.products, tokens).ids.map((id) => masters.products.find((p) => p.id === id)!.name);
   const router = useRouter();
   const [kind, setKind] = useState<Kind>("META_CSV");
   const [file, setFile] = useState<{ name: string; rows: Record<string, string>[]; headers: string[] } | null>(null);
@@ -115,8 +126,8 @@ export function ImportWizard() {
                       </td>
                       <td className="p-2">{phone ? phone.e164 : <span className="text-rose-600">invalid</span>}</td>
                       <td className="p-2 whitespace-nowrap">{m.receivedAt ? formatIST(m.receivedAt as Date) : "—"}</td>
-                      <td className="p-2">{SOURCE_LABEL[m.source]}</td>
-                      <td className="p-2">{(m.products ?? []).map((p) => PRODUCT_LABEL[p]).join(", ")}</td>
+                      <td className="p-2">{sourceName(m.source)}</td>
+                      <td className="p-2">{productNames(m.products ?? []).join(", ")}</td>
                       <td className="p-2">{m.siteAddress ?? <span className="text-amber-700">none → Online Desk</span>}</td>
                       <td className="p-2 text-xs text-slate-500">
                         {m.campaignName}
@@ -177,7 +188,7 @@ export function ImportWizard() {
         </Card>
       )}
 
-      {file && kind === "LEGACY_SHEET" && <LegacyPreview headers={file.headers} rows={file.rows} />}
+      {file && kind === "LEGACY_SHEET" && <LegacyPreview headers={file.headers} rows={file.rows} masters={masters} />}
     </div>
   );
 }
@@ -193,7 +204,7 @@ function SummaryTile({ label, value, tone }: { label: string; value: number; ton
 
 const SHEET_FIELDS = ["First Name", "Last Name", "Salutation", "Phone", "Email", "Site Address", "Product/Solution", "Source", "Status", "Remarks"];
 
-function LegacyPreview({ headers, rows }: { headers: string[]; rows: Record<string, string>[] }) {
+function LegacyPreview({ headers, rows, masters }: { headers: string[]; rows: Record<string, string>[]; masters: WizardMasters }) {
   const mapped = SHEET_FIELDS.map((f) => ({ field: f, column: headers.find((h) => h.trim().toLowerCase() === f.toLowerCase()) ?? null }));
   return (
     <Card>
@@ -216,7 +227,8 @@ function LegacyPreview({ headers, rows }: { headers: string[]; rows: Record<stri
               const m = mapSheetRow(r);
               return (
                 <li key={i}>
-                  {m.firstName} {m.lastName ?? ""} · {SOURCE_LABEL[m.source]} · {m.legacyStatus ? `${m.legacyStatus.stage}${m.legacyStatus.lostReason ? ` / ${m.legacyStatus.lostReason}` : ""}` : "status ?"}
+                  {m.firstName} {m.lastName ?? ""} · {resolveSource(masters.sources, m.source).source?.name ?? "?"} ·{" "}
+                  {(m.legacyStatus && matchLegacyStatus(masters.stages, masters.defaultPipelineId, m.legacyStatus)?.label) ?? `status ? (${m.legacyStatus ?? "empty"})`}
                 </li>
               );
             })}

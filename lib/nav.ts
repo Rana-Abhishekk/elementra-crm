@@ -21,21 +21,25 @@ import {
   Users,
   UsersRound,
   Layers,
+  GitBranch,
+  Tags,
+  Package,
+  Store,
+  ShieldCheck,
+  UserCog,
+  Gauge,
   type LucideIcon,
 } from "lucide-react";
-import type { Role } from "@prisma/client";
+import type { Permission } from "@/lib/auth/permissions";
 
 export interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
   feature?: string; // FeatureBadge source
-  roles?: Role[]; // omitted = everyone
+  perms?: Permission[]; // any one of these; omitted = everyone signed in
   demoOnly?: boolean;
 }
-
-const MGR: Role[] = ["OWNER", "ADMIN", "SALES_MANAGER"];
-const ADM: Role[] = ["OWNER", "ADMIN"];
 
 export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
@@ -44,7 +48,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/dashboard/my-day", label: "My Day", icon: Sun },
       { href: "/dashboard/leads", label: "Leads", icon: ListChecks },
       { href: "/dashboard/pipeline", label: "Pipeline", icon: SquareKanban },
-      { href: "/dashboard/queues", label: "Queues", icon: Layers, roles: ["OWNER", "ADMIN", "SALES_MANAGER", "PRESALES"] },
+      { href: "/dashboard/queues", label: "Queues", icon: Layers, perms: ["queues.needsLocation", "queues.outOfArea", "leads.reassign"] },
       { href: "/dashboard/appointments", label: "Appointments", icon: CalendarCheck },
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, feature: "F22" },
     ],
@@ -53,8 +57,9 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: "Insights",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/dashboard/reports", label: "Reports", icon: BarChart3, roles: MGR },
-      { href: "/dashboard/campaigns", label: "Campaigns", icon: Megaphone, roles: MGR },
+      { href: "/dashboard/reports", label: "Reports", icon: BarChart3, perms: ["reports.view"] },
+      { href: "/dashboard/team-performance", label: "Team performance", icon: Gauge, perms: ["team.performance"] },
+      { href: "/dashboard/campaigns", label: "Campaigns", icon: Megaphone, perms: ["reports.view"] },
       { href: "/dashboard/map", label: "Map", icon: Map, feature: "F27" },
     ],
   },
@@ -69,22 +74,34 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     ],
   },
   {
+    title: "Masters",
+    items: [
+      { href: "/dashboard/masters/pipelines", label: "Pipelines & Statuses", icon: GitBranch, perms: ["pipelines.manage"] },
+      { href: "/dashboard/masters/branches", label: "Branches", icon: Store, perms: ["branches.manage"] },
+      { href: "/dashboard/masters/sources", label: "Sources", icon: Tags, perms: ["masters.manage"] },
+      { href: "/dashboard/masters/products", label: "Products", icon: Package, perms: ["masters.manage"] },
+      { href: "/dashboard/masters/users", label: "Users", icon: UserCog, perms: ["users.view", "users.manage"] },
+      { href: "/dashboard/masters/roles", label: "Roles & permissions", icon: ShieldCheck, perms: ["roles.manage"] },
+    ],
+  },
+  {
     title: "Admin",
     items: [
-      { href: "/dashboard/team", label: "Team", icon: UsersRound, roles: MGR },
-      { href: "/dashboard/automations", label: "Automations", icon: Bot, roles: MGR },
-      { href: "/dashboard/imports", label: "Imports", icon: Upload, roles: [...ADM, "PRESALES"] },
-      { href: "/dashboard/settings", label: "Settings", icon: Settings, roles: ADM },
-      { href: "/dashboard/audit", label: "Audit log", icon: ScrollText, roles: ADM },
+      { href: "/dashboard/team", label: "Team", icon: UsersRound, perms: ["users.view"] },
+      { href: "/dashboard/automations", label: "Automations", icon: Bot, perms: ["automations.manage"] },
+      { href: "/dashboard/imports", label: "Imports", icon: Upload, perms: ["imports.run"] },
+      { href: "/dashboard/settings", label: "Settings", icon: Settings, perms: ["settings.manage", "templates.manage", "integrations.manage"] },
+      { href: "/dashboard/audit", label: "Audit log", icon: ScrollText, perms: ["audit.view"] },
       { href: "/dashboard/build-status", label: "Build Status", icon: ClipboardList },
-      { href: "/dashboard/demo", label: "Demo panel", icon: FlaskConical, roles: ADM, demoOnly: true },
+      { href: "/dashboard/demo", label: "Demo panel", icon: FlaskConical, perms: ["demo.use"], demoOnly: true },
     ],
   },
 ];
 
-export function navForRole(role: Role, demoMode: boolean) {
+/** The sidebar for someone holding `permissions`. Hiding links is convenience; pages and actions check again. */
+export function navFor(permissions: readonly string[], demoMode: boolean) {
   return NAV_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((i) => (!i.roles || i.roles.includes(role)) && (!i.demoOnly || demoMode)),
+    items: g.items.filter((i) => (!i.perms || i.perms.some((p) => permissions.includes(p))) && (!i.demoOnly || demoMode)),
   })).filter((g) => g.items.length > 0);
 }

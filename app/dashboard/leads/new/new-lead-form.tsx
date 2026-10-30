@@ -3,17 +3,21 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import { PRODUCTS, PRODUCT_LABEL, SOURCE_LABEL } from "@/lib/domain/labels";
 import { createLeadAction } from "../actions";
 
-export function NewLeadForm({ architects }: { architects: { id: string; label: string }[] }) {
+type Option = { id: string; name: string };
+
+export function NewLeadForm({ architects, products, sources }: { architects: { id: string; label: string }[]; products: Option[]; sources: Option[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
   function submit(form: FormData) {
     start(async () => {
       const res = await createLeadAction(form);
-      if (!res.ok) return void toast.error(res.error);
+      if (!res.ok) {
+        const existing = res.existingLeadId;
+        return void toast.error(res.error, existing ? { duration: 10000, action: { label: "Open it", onClick: () => router.push(`/dashboard/leads/${existing}`) } } : undefined);
+      }
       toast.success(res.message);
       router.push(`/dashboard/leads/${res.id}`);
     });
@@ -46,11 +50,11 @@ export function NewLeadForm({ architects }: { architects: { id: string; label: s
       <fieldset>
         <legend className="label">Products</legend>
         <div className="flex flex-wrap gap-2">
-          {PRODUCTS.map((p) => (
-            <label key={p} className="cursor-pointer">
-              <input type="checkbox" name="products" value={p} defaultChecked={p === "KITCHEN"} className="peer sr-only" />
+          {products.map((p, i) => (
+            <label key={p.id} className="cursor-pointer">
+              <input type="checkbox" name="products" value={p.id} defaultChecked={i === 0} className="peer sr-only" />
               <span className="inline-block rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white">
-                {PRODUCT_LABEL[p]}
+                {p.name}
               </span>
             </label>
           ))}
@@ -59,10 +63,13 @@ export function NewLeadForm({ architects }: { architects: { id: string; label: s
       <div className="grid gap-4 sm:grid-cols-3">
         <label>
           <span className="label">Source *</span>
-          <select name="source" className="field" defaultValue="CALL">
-            {Object.entries(SOURCE_LABEL).map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
+          <select name="source" className="field" defaultValue="" required>
+            <option value="" disabled>
+              Pick a source
+            </option>
+            {sources.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
               </option>
             ))}
           </select>

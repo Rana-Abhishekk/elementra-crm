@@ -1,6 +1,5 @@
 // The 10 named demo scenarios (02_REFERENCE_DATA §8) + a random burst. Each goes through the real
 // entry point for its channel (Meta webhook processor, website form path, manual ingest).
-import type { Product } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ingestLead, type DecisionSummary, type IngestInput } from "@/lib/domain/leads/ingest";
 import { processLeadgenPayload, simulatedEnvelope } from "@/lib/domain/integrations/metaWebhook";
@@ -21,6 +20,7 @@ export const SCENARIOS = [
   { id: 8, title: "Returning customer", hint: "Phone matches an open lead → same owner" },
   { id: 9, title: "Night lead", hint: "23:40 IST → call due 11:00 next morning" },
   { id: 10, title: "Rep on leave", hint: "Arjun on leave → Meera gets it" },
+  { id: 11, title: "Full-home enquiry", hint: "Full Home Interiors → Turnkey pipeline" },
 ] as const;
 
 export type ScenarioResult = { ok: true; decision: DecisionSummary } | { ok: false; error: string };
@@ -86,27 +86,28 @@ export async function runScenario(id: number, actorId: string | null): Promise<S
       return viaMeta(graphLead({ first: "Rhea", last: "Kapoor", phone, pincode: "400018", area: "Flat 1802, Worli Sea Face" }));
     case 2:
       return viaIngest(
-        { firstName: "Aditya", lastName: "Shah", phone, email: syntheticEmail("aditya", "shah", 2), siteAddress: "Flat 704, Palm Residency, goregoan east", products: ["KITCHEN", "WARDROBES"], source: "WEBSITE", channel: "WEBSITE_FORM" },
+        { firstName: "Aditya", lastName: "Shah", phone, email: syntheticEmail("aditya", "shah", 2), siteAddress: "Flat 704, Palm Residency, goregoan east", products: ["Kitchen", "Wardrobes"], source: "web:form", channel: "WEBSITE_FORM" },
         null,
       );
     case 3:
-      return viaIngest({ firstName: "Kavya", lastName: "Iyer", phone, siteAddress: "Sector 17, Vashi 400703", products: ["KITCHEN"], source: "WHATSAPP", channel: "WHATSAPP" }, null);
+      return viaIngest({ firstName: "Kavya", lastName: "Iyer", phone, siteAddress: "Sector 17, Vashi 400703", products: ["Kitchen"], source: "WhatsApp", channel: "WHATSAPP" }, null);
     case 4:
       return viaMeta(graphLead({ first: "Nikhil", last: "Kulkarni", phone, product: "elementra_wardrobes", area: "Baner, Pune", platform: "fb" }));
     case 5:
       return viaMeta(graphLead({ first: "Pooja", last: "Thakkar", phone, area: "Adajan, Surat, Gujarat" }));
     case 6:
-      return viaIngest({ firstName: "Aniket", lastName: "Pawar", phone, siteAddress: "New Panvel 410206", products: ["KITCHEN"], source: "WEBSITE", channel: "WEBSITE_FORM" }, null);
+      return viaIngest({ firstName: "Aniket", lastName: "Pawar", phone, siteAddress: "New Panvel 410206", products: ["Kitchen"], source: "web:form", channel: "WEBSITE_FORM" }, null);
     case 7:
       return viaMeta(graphLead({ first: "Ruhi", last: "Menon", phone }));
     case 8: {
       const original = await prisma.lead.findFirst({
-        where: { stage: { notIn: ["CLOSED_WON", "CLOSED_LOST"] }, ownerId: { not: null }, phoneE164: { not: null }, branch: { kind: "EXPERIENCE_CENTRE" }, duplicateOfId: null },
+        where: { stage: { category: "OPEN" }, ownerId: { not: null }, openPhoneKey: { not: null }, branch: { kind: "EXPERIENCE_CENTRE" } },
         orderBy: { createdAt: "desc" },
+        include: { products: { select: { id: true } } },
       });
       if (!original) return { ok: false, error: "No open lead with an owner to repeat — generate demo data first." };
       return viaIngest(
-        { firstName: original.firstName, lastName: original.lastName, phone: original.phoneE164, siteAddress: original.siteAddressRaw, products: original.products, source: "CALL", channel: "MANUAL", notes: "Called the showroom again asking about delivery timelines." },
+        { firstName: original.firstName, lastName: original.lastName, phone: original.phoneE164, siteAddress: original.siteAddressRaw, products: original.products.map((p) => p.id), source: "Phone call", channel: "MANUAL", notes: "Called the showroom again asking about delivery timelines." },
         actorId,
       );
     }
@@ -122,8 +123,11 @@ export async function runScenario(id: number, actorId: string | null): Promise<S
         await prisma.user.update({ where: { id: arjun.id }, data: { onLeave: true, onLeaveUntil: null } });
         await writeAudit({ actorId, action: "user.on_leave", entityType: "User", entityId: arjun.id, summary: `${arjun.name} marked on leave (demo scenario)` });
       }
-      return viaIngest({ firstName: "Ritika", lastName: "Chopra", phone, siteAddress: "Andheri West, Lokhandwala", products: ["KITCHEN"], source: "WALK_IN", channel: "MANUAL" }, actorId);
+      return viaIngest({ firstName: "Ritika", lastName: "Chopra", phone, siteAddress: "Andheri West, Lokhandwala", products: ["Kitchen"], source: "Walk-in", channel: "MANUAL" }, actorId);
     }
+    case 11:
+      // Product-based pipeline auto-selection (Masters → Pipelines: Turnkey lists Full Home Interiors)
+      return viaIngest({ firstName: "Sanjana", lastName: "Bhosale", phone, siteAddress: "Bandra West, Pali Hill", products: ["Full Home Interiors", "Kitchen"], source: "web:form", channel: "WEBSITE_FORM" }, actorId);
     default:
       return { ok: false, error: "Unknown scenario" };
   }
@@ -147,13 +151,13 @@ export async function runRandomBurst(actorId: string | null, count = 10) {
     const last = pick(rng, LAST_NAMES);
     const area = weighted(rng, RANDOM_AREAS);
     const source = weighted(rng, SOURCE_WEIGHTS);
-    const products: Product[] = weighted(rng, [[["KITCHEN"], 58], [["KITCHEN", "WARDROBES"], 20], [["WARDROBES"], 8], [["KITCHEN", "WARDROBES", "FURNITURE"], 8], [["APPLIANCES"], 6]] as const) as Product[];
+    const products = weighted(rng, [[["prd_kitchen"], 58], [["prd_kitchen", "prd_wardrobes"], 20], [["prd_wardrobes"], 8], [["prd_kitchen", "prd_wardrobes", "prd_furniture"], 8], [["prd_appliances"], 6]] as const) as unknown as string[];
     const phone = await freshPhone();
     const siteAddress = area && area !== "NA" && rng() < 0.5 ? `Flat ${100 + Math.floor(rng() * 1800)}, ${pick(rng, SOCIETIES)}, ${area}` : area;
     const res =
-      source === "INSTAGRAM_PAID" || source === "FACEBOOK"
-        ? await viaMeta(graphLead({ first, last, phone, area: siteAddress ?? undefined, platform: source === "FACEBOOK" ? "fb" : "ig", product: products[0] === "WARDROBES" ? "elementra_wardrobes" : "elementra_kitchens" }))
-        : await viaIngest({ firstName: first, lastName: last, phone, siteAddress, products, source, channel: source === "WEBSITE" ? "WEBSITE_FORM" : source === "WHATSAPP" ? "WHATSAPP" : "MANUAL" }, actorId);
+      source === "src_instagram_paid" || source === "src_facebook"
+        ? await viaMeta(graphLead({ first, last, phone, area: siteAddress ?? undefined, platform: source === "src_facebook" ? "fb" : "ig", product: products[0] === "prd_wardrobes" ? "elementra_wardrobes" : "elementra_kitchens" }))
+        : await viaIngest({ firstName: first, lastName: last, phone, siteAddress, products, source, channel: source === "src_website" ? "WEBSITE_FORM" : source === "src_whatsapp" ? "WHATSAPP" : "MANUAL" }, actorId);
     if (!res.ok) tally.failed++;
     else if (res.decision.rule === "OUT_OF_AREA") tally.outOfArea++;
     else if (res.decision.rule === "NEEDS_LOCATION") tally.needsLocation++;

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { canEditLead } from "@/lib/access";
+import { canEditLead } from "@/lib/auth/scope";
 import { writeAudit } from "@/lib/domain/audit";
 import { PROJECT_STAGES, PROJECT_STAGE_LABEL } from "@/lib/domain/labels";
 

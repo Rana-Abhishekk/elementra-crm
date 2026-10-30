@@ -5,17 +5,16 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FlaskConical, LogOut, Menu, Plus, Search, X } from "lucide-react";
 import { signOut } from "next-auth/react";
-import type { Role } from "@prisma/client";
-import { navForRole } from "@/lib/nav";
-import { ROLE_LABEL } from "@/lib/domain/labels";
+import { navFor } from "@/lib/nav";
 import { FeatureBadge } from "@/components/feature-badge";
 import { cn } from "@/lib/utils";
 
 export interface ShellUser {
   name: string;
   email: string;
-  role: Role;
+  roleName: string;
   branchName: string | null;
+  permissions: string[];
 }
 
 export function AppShell({
@@ -31,7 +30,8 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const groups = navForRole(user.role, demoMode);
+  const groups = navFor(user.permissions, demoMode);
+  const has = (p: string) => user.permissions.includes(p);
 
   // Close the drawer after navigating
   useEffect(() => {
@@ -76,7 +76,7 @@ export function AppShell({
       <div className="border-t border-white/10 px-4 py-3 text-sm">
         <div className="truncate font-medium text-white">{user.name}</div>
         <div className="truncate text-xs text-white/50">
-          {ROLE_LABEL[user.role]}
+          {user.roleName}
           {user.branchName ? ` · ${user.branchName}` : ""}
         </div>
         <button onClick={() => signOut({ callbackUrl: "/login" })} className="mt-2 inline-flex items-center gap-1.5 text-xs text-white/60 hover:text-white">
@@ -106,22 +106,24 @@ export function AppShell({
           </form>
           <div className="ml-auto flex items-center gap-1 md:gap-2">
             {bell}
-            <Link href="/dashboard/leads/new" className="btn px-3 py-1.5">
-              <Plus className="size-4" />
-              <span className="hidden sm:inline">New lead</span>
-            </Link>
-            <div className="hidden text-right text-xs leading-tight lg:block">
+            {has("leads.create") && (
+              <Link href="/dashboard/leads/new" className="btn px-3 py-1.5">
+                <Plus className="size-4" />
+                <span className="hidden sm:inline">New lead</span>
+              </Link>
+            )}
+            <Link href="/dashboard/account" className="hidden text-right text-xs leading-tight hover:underline lg:block" title="My account">
               <div className="font-medium text-ink">{user.name}</div>
               <div className="text-slate-500">
-                {ROLE_LABEL[user.role]}
+                {user.roleName}
                 {user.branchName ? ` · ${user.branchName}` : ""}
               </div>
-            </div>
+            </Link>
           </div>
         </header>
         <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
       </div>
-      {demoMode && (user.role === "OWNER" || user.role === "ADMIN") && !pathname.startsWith("/dashboard/demo") && (
+      {demoMode && has("demo.use") && !pathname.startsWith("/dashboard/demo") && (
         <Link
           href="/dashboard/demo"
           className="fixed right-4 bottom-4 z-30 inline-flex items-center gap-1.5 rounded-full bg-gold px-4 py-2 text-sm font-semibold text-brand shadow-lg hover:brightness-105"

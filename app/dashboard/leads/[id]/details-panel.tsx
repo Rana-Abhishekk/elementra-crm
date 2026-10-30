@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 import { MapPin, Pencil, Route } from "lucide-react";
-import type { Priority, Product } from "@prisma/client";
+import type { Priority } from "@prisma/client";
 import { Card, CardHeader, Chip } from "@/components/ui";
-import { PRIORITY_LABEL, PRODUCTS, PRODUCT_LABEL } from "@/lib/domain/labels";
+import { PRIORITY_LABEL } from "@/lib/domain/labels";
 import { formatPhone } from "@/lib/domain/phone";
 import { formatIST } from "@/lib/domain/time";
 import { formatINR } from "@/lib/domain/money";
@@ -24,7 +24,8 @@ export interface DetailsLead {
   siteAddressRaw: string | null;
   pincode: string | null;
   localityLabel: string | null;
-  products: Product[];
+  products: string[]; // product ids
+  sourceId: string;
   priority: Priority;
   language: string;
   possessionDate: Date | null;
@@ -50,7 +51,23 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-export function DetailsPanel({ lead, architects, editable, valueLabel }: { lead: DetailsLead; architects: { id: string; label: string }[]; editable: boolean; valueLabel: string }) {
+type MasterOption = { id: string; name: string; isActive: boolean };
+
+export function DetailsPanel({
+  lead,
+  architects,
+  products,
+  sources,
+  editable,
+  valueLabel,
+}: {
+  lead: DetailsLead;
+  architects: { id: string; label: string }[];
+  products: MasterOption[];
+  sources: MasterOption[];
+  editable: boolean;
+  valueLabel: string;
+}) {
   const [editing, setEditing] = useState(false);
   const [locating, setLocating] = useState(false);
   const { pending, run } = useServerAction();
@@ -59,8 +76,10 @@ export function DetailsPanel({ lead, architects, editable, valueLabel }: { lead:
     firstName: lead.firstName,
     lastName: lead.lastName ?? "",
     email: lead.email ?? "",
+    phone: lead.phoneE164 ?? "",
     altPhoneE164: lead.altPhoneE164 ?? "",
     products: lead.products,
+    sourceId: lead.sourceId,
     priority: lead.priority,
     language: lead.language as "en" | "hi",
     possessionDate: lead.possessionDate ? lead.possessionDate.toISOString().slice(0, 10) : "",
@@ -82,6 +101,7 @@ export function DetailsPanel({ lead, architects, editable, valueLabel }: { lead:
           salutation: f.salutation || null,
           lastName: f.lastName || null,
           email: f.email || null,
+          phone: f.phone || null,
           altPhoneE164: f.altPhoneE164 || null,
           possessionDate: f.possessionDate ? new Date(`${f.possessionDate}T00:00:00+05:30`) : null,
           budgetNote: f.budgetNote || null,
@@ -115,9 +135,15 @@ export function DetailsPanel({ lead, architects, editable, valueLabel }: { lead:
             <Row label="Products">
               {lead.products.length ? (
                 <span className="flex flex-wrap gap-1">
-                  {lead.products.map((p) => (
-                    <Chip key={p}>{PRODUCT_LABEL[p]}</Chip>
-                  ))}
+                  {lead.products.map((id) => {
+                    const p = products.find((x) => x.id === id);
+                    return (
+                      <Chip key={id} className={p?.isActive === false ? "bg-slate-50 text-slate-400 ring-slate-200" : undefined}>
+                        {p?.name ?? "—"}
+                        {p?.isActive === false ? " (inactive)" : ""}
+                      </Chip>
+                    );
+                  })}
                 </span>
               ) : null}
             </Row>
@@ -142,19 +168,32 @@ export function DetailsPanel({ lead, architects, editable, valueLabel }: { lead:
               <input className="field" placeholder="Last name" value={f.lastName} onChange={(e) => set("lastName", e.target.value)} />
             </div>
             <input className="field" placeholder="Email" value={f.email} onChange={(e) => set("email", e.target.value)} />
+            <input className="field" placeholder="Phone (+91…)" value={f.phone} onChange={(e) => set("phone", e.target.value)} />
             <input className="field" placeholder="Alternate phone (+91…)" value={f.altPhoneE164} onChange={(e) => set("altPhoneE164", e.target.value)} />
             <div className="flex flex-wrap gap-1.5">
-              {PRODUCTS.map((p) => (
+              {products.map((p) => (
                 <button
-                  key={p}
+                  key={p.id}
                   type="button"
-                  onClick={() => set("products", f.products.includes(p) ? f.products.filter((x) => x !== p) : [...f.products, p])}
-                  className={cn("rounded-full border px-2.5 py-1 text-xs", f.products.includes(p) ? "border-brand bg-brand text-white" : "border-slate-300 text-slate-600")}
+                  onClick={() => set("products", f.products.includes(p.id) ? f.products.filter((x) => x !== p.id) : [...f.products, p.id])}
+                  className={cn("rounded-full border px-2.5 py-1 text-xs", f.products.includes(p.id) ? "border-brand bg-brand text-white" : "border-slate-300 text-slate-600")}
                 >
-                  {PRODUCT_LABEL[p]}
+                  {p.name}
+                  {p.isActive ? "" : " (inactive)"}
                 </button>
               ))}
             </div>
+            <label className="block">
+              <span className="label">Source</span>
+              <select className="field" value={f.sourceId} onChange={(e) => set("sourceId", e.target.value)}>
+                {sources.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                    {x.isActive ? "" : " (inactive)"}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="grid grid-cols-2 gap-2">
               <label>
                 <span className="label">Priority</span>

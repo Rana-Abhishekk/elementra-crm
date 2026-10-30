@@ -1,7 +1,7 @@
 // ingestLead(): the one entry point for every new lead — manual form, /enquire, Meta webhook,
 // CSV import, demo scenarios, Sheets simulator (spec §8.1).
 import { z } from "zod";
-import { IntakeChannel, LeadSource, Priority, Product, type Lead, type LocationStatus, type Prisma, type RoutingRule } from "@prisma/client";
+import { IntakeChannel, Priority, type Lead, type LocationStatus, type Prisma, type RoutingRule } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/domain/audit";
 import { notify, ownerIds } from "@/lib/domain/notify";
@@ -11,8 +11,10 @@ import { resolveLocation, type ResolvedLocation } from "@/lib/domain/geo/resolve
 import { decideBranch, shortBranch, type BranchDecision } from "@/lib/domain/routing/decide";
 import { pickAssignee, type AssigneePick } from "@/lib/domain/routing/assign";
 import { addWorkingMinutes, friendlyIST, isWithinWorkingHours } from "@/lib/domain/time";
-import { CHANNEL_LABEL, SOURCE_LABEL } from "@/lib/domain/labels";
-import { isOpenStage } from "@/lib/domain/stages";
+import { CHANNEL_LABEL } from "@/lib/domain/labels";
+import { openPhoneKey, outOfAreaLostStage, pickPipeline } from "@/lib/domain/stages";
+import { resolveProducts, resolveSource } from "@/lib/domain/masters/resolve";
+import { initialStageOf, loadMasters } from "@/lib/data/masters";
 import { loadMembers, loadRoutingContext, nextRefCode } from "./context";
 
 const optText = z
@@ -37,8 +39,10 @@ export const ingestSchema = z.object({
   siteAddress: optText,
   pincode: optText,
   city: optText,
-  products: z.array(z.enum(Product)).default([]),
-  source: z.enum(LeadSource),
+  // Product ids, names or Meta answer keys; matched against the Product master
+  products: z.array(z.string()).default([]),
+  // Source id, name or integration key ("meta:ig:paid", "web:form"); unknown → the fallback source
+  source: z.string().min(1),
   channel: z.enum(IntakeChannel),
   priority: z.enum(Priority).optional(),
   language: z.enum(["en", "hi"]).optional(),
@@ -75,7 +79,20 @@ export interface DecisionSummary {
   existing?: boolean;
 }
 
-export type IngestResult = { ok: true; lead: Lead; decision: DecisionSummary } | { ok: false; error: string };
+export interface OpenDuplicate {
+  leadId: string;
+  refCode: string;
+  ownerName: string | null;
+  branchName: string | null;
+  ownerId: string | null;
+  branchId: string | null;
+  locationStatus: LocationStatus;
+  handedOverById: string | null;
+}
+
+export type IngestResult =
+  | { ok: true; lead: Lead; decision: DecisionSummary }
+  | { ok: false; error: string; openDuplicate?: OpenDuplicate };
 
 const titleCase = (s: string | null) =>
   s ? s.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase()) : s;
@@ -85,8 +102,16 @@ function channelPhrase(channel: IntakeChannel, platform: string | null) {
   return CHANNEL_LABEL[channel].toLowerCase();
 }
 
-/** `quiet`: backfills (CSV import) skip the welcome message and notifications. */
-export async function ingestLead(raw: IngestInput, opts: { actorId?: string | null; now?: Date; quiet?: boolean } = {}): Promise<IngestResult> {
+/**
+ * `quiet`: backfills (CSV import) skip the welcome message and notifications.
+ * `onOpenDuplicate`: the phone number already has an OPEN lead (the DB allows only one).
+ *   "attach" (automatic intake): the enquiry is added to that lead's timeline, same owner, no new lead.
+ *   "reject" (manual form): nothing is created and the existing lead is returned to the caller.
+ */
+export async function ingestLead(
+  raw: IngestInput,
+  opts: { actorId?: string | null; now?: Date; quiet?: boolean; onOpenDuplicate?: "attach" | "reject"; _retried?: boolean } = {},
+): Promise<IngestResult> {
   const parsed = ingestSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
   const input = parsed.data;
@@ -124,31 +149,53 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
     }
   }
 
-  const ctx = await loadRoutingContext();
+  const [ctx, masters] = await Promise.all([loadRoutingContext(), loadMasters()]);
   const { settings } = ctx;
   const wh = settings.workingHours;
 
-  // 3. Duplicate / returning customer
-  let duplicateOf: (Lead & { owner: { id: string; name: string; isActive: boolean } | null }) | null = null;
+  // Masters: source (integration key / name), products, pipeline (auto-selected by product), initial stage
+  const src = resolveSource(masters.sources, input.source);
+  const source = src.source;
+  if (!source) return { ok: false, error: "No lead sources are set up — add one in Masters → Sources." };
+  const prod = resolveProducts(masters.products, input.products);
+  const pipeline = pickPipeline(masters.pipelines, prod.ids) ?? masters.defaultPipeline;
+  const stage = initialStageOf(masters, pipeline.id);
+
+  // 3. Same phone number: one OPEN lead per number (enforced by Lead.openPhoneKey); closed → returning customer
+  if (primary) {
+    const open = await prisma.lead.findUnique({
+      where: { openPhoneKey: primary.e164 },
+      include: { owner: { select: { id: true, name: true } }, branch: { select: { name: true, kind: true } } },
+    });
+    if (open) {
+      if (opts.onOpenDuplicate === "reject") {
+        return {
+          ok: false,
+          error: `${primary.e164} already has an open lead: ${open.refCode}.`,
+          openDuplicate: {
+            leadId: open.id,
+            refCode: open.refCode,
+            ownerName: open.owner?.name ?? null,
+            branchName: open.branch ? (open.branch.kind === "ONLINE_DESK" ? "Online Desk" : shortBranch(open.branch.name)) : null,
+            ownerId: open.ownerId,
+            branchId: open.branchId,
+            locationStatus: open.locationStatus,
+            handedOverById: open.handedOverById,
+          },
+        };
+      }
+      return attachEnquiry(open, input, source.name, prod.ids, actorId, now, receivedAt, !!opts.quiet);
+    }
+  }
+  // Closed earlier enquiry from the same number → route normally, flagged as a returning customer
+  let duplicateOf: Lead | null = null;
   if (primary) {
     const since = new Date(now.getTime() - settings.duplicates.windowDays * 86400_000);
     duplicateOf = await prisma.lead.findFirst({
       where: { phoneE164: primary.e164, createdAt: { gte: since } },
       orderBy: [{ createdAt: "desc" }],
-      include: { owner: { select: { id: true, name: true, isActive: true } } },
     });
-    // Prefer an open one if several exist
-    if (duplicateOf && !isOpenStage(duplicateOf.stage)) {
-      const open = await prisma.lead.findFirst({
-        where: { phoneE164: primary.e164, createdAt: { gte: since }, stage: { notIn: ["CLOSED_WON", "CLOSED_LOST"] } },
-        orderBy: { createdAt: "desc" },
-        include: { owner: { select: { id: true, name: true, isActive: true } } },
-      });
-      if (open) duplicateOf = open;
-    }
   }
-  const openDuplicate = duplicateOf && isOpenStage(duplicateOf.stage) ? duplicateOf : null;
-  const sameOwner = openDuplicate && settings.duplicates.policy === "LINK_SAME_OWNER" && openDuplicate.owner?.isActive ? openDuplicate : null;
 
   // 4–6. Resolve → decide → assign
   const loc: ResolvedLocation = resolveLocation(
@@ -157,21 +204,14 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
     { fuzzyThreshold: settings.geo.fuzzyThreshold },
   );
   let decision = decideBranch(loc, ctx.branches, ctx.rules, settings.routing.mode);
-  let rule: RoutingRule = decision.rule;
+  const rule: RoutingRule = decision.rule;
   let branchId = decision.branchId;
   let priority: Priority = input.priority ?? "WARM";
   let assignee: AssigneePick | null = null;
-  let explanation = [...decision.explanation];
+  const explanation = [...decision.explanation];
+  if (duplicateOf) explanation.unshift(`Returning customer: earlier enquiry ${duplicateOf.refCode} from this number is closed, so this is a new lead.`);
 
-  if (sameOwner) {
-    rule = "RETURNING_SAME_OWNER";
-    branchId = sameOwner.branchId;
-    explanation = [
-      `Returning customer: phone matches open lead ${sameOwner.refCode}.`,
-      `Same owner and branch as before (${sameOwner.owner!.name}); area routing skipped.`,
-    ];
-    assignee = { userId: sameOwner.owner!.id, name: sameOwner.owner!.name, strategy: "ROUND_ROBIN", skipped: [], fallback: null, explanation: [] };
-  } else if (decision.rule === "OUT_OF_AREA" && settings.routing.outOfAreaAction === "ASSIGN_LOW_PRIORITY" && decision.candidates[0]) {
+  if (decision.rule === "OUT_OF_AREA" && settings.routing.outOfAreaAction === "ASSIGN_LOW_PRIORITY" && decision.candidates[0]) {
     branchId = decision.candidates[0].branchId;
     priority = "COLD";
     explanation.push(`Settings say "assign out-of-area as low priority" → ${decision.candidates[0].name}, priority Cold.`);
@@ -189,11 +229,9 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
       ? "NEEDS_LOCATION"
       : rule === "OUT_OF_AREA" && !(settings.routing.outOfAreaAction === "ASSIGN_LOW_PRIORITY" && branchId)
         ? "OUT_OF_AREA"
-        : rule === "RETURNING_SAME_OWNER" && loc.kind !== "RESOLVED"
-          ? (sameOwner?.locationStatus ?? "RESOLVED")
-          : loc.kind === "NONE"
-            ? "NEEDS_LOCATION"
-            : "RESOLVED";
+        : loc.kind === "NONE"
+          ? "NEEDS_LOCATION"
+          : "RESOLVED";
 
   const ownerId = assignee?.userId ?? null;
   const afterHours = !isWithinWorkingHours(receivedAt, wh);
@@ -201,12 +239,15 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
   const branchLabel = branch ? (branch.kind === "ONLINE_DESK" ? "Online Desk" : shortBranch(branch.name)) : null;
   const queueOwners = await ownerIds();
 
-  // 7. Persist
-  const lead = await prisma.$transaction(
+  // 7. Persist. A parallel intake for the same number can win the openPhoneKey race → retry as a repeat enquiry.
+  let lead: Lead;
+  try {
+  lead = await prisma.$transaction(
     async (tx) => {
       const refCode = await nextRefCode(tx);
+      // One contact per phone number (Contact.phoneE164 is unique)
       let contact = primary
-        ? await tx.contact.findFirst({ where: { phoneE164: primary.e164, kind: "CUSTOMER" } })
+        ? await tx.contact.findUnique({ where: { phoneE164: primary.e164 } })
         : input.email
           ? await tx.contact.findFirst({ where: { email: input.email, kind: "CUSTOMER" } })
           : null;
@@ -246,6 +287,7 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
           firstName,
           lastName,
           phoneE164: primary?.e164 ?? null,
+          openPhoneKey: openPhoneKey(stage.category, primary?.e164),
           altPhoneE164: alt?.e164 ?? null,
           email: input.email,
           language: input.language ?? settings.messaging.defaultLanguage,
@@ -261,14 +303,16 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
           branchId,
           ownerId,
           assignedAt: ownerId ? receivedAt : null,
-          products: input.products,
+          products: { connect: prod.ids.map((id) => ({ id })) },
+          pipelineId: pipeline.id,
+          stageId: stage.id,
           priority,
           possessionDate: input.possessionDate,
           budgetNote: input.budgetNote,
           estimatedValueInr: input.estimatedValueInr,
           architectId,
           architectCommissionPct,
-          source: input.source,
+          sourceId: source.id,
           intakeChannel: input.channel,
           campaignName: input.campaignName,
           adsetName: input.adsetName,
@@ -294,11 +338,11 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
           geoConfidence: loc.confidence,
           matchedLabel: loc.label,
           rule,
-          distanceKm: rule === "RETURNING_SAME_OWNER" ? null : decision.distanceKm,
+          distanceKm: decision.distanceKm,
           candidates: decision.candidates as unknown as Prisma.InputJsonValue,
           chosenBranchId: branchId,
           chosenUserId: ownerId,
-          strategy: assignee && rule !== "RETURNING_SAME_OWNER" ? assignee.strategy : null,
+          strategy: assignee ? assignee.strategy : null,
           skipped: (assignee?.skipped ?? []) as unknown as Prisma.InputJsonValue,
           explanation: [...explanation, ...(assignee?.explanation ?? [])],
           actorId,
@@ -313,10 +357,29 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
         {
           leadId: created.id,
           type: "SYSTEM",
-          body: `Lead received from ${channelPhrase(input.channel, input.platform)} · ${SOURCE_LABEL[input.source]}${campaign}`,
+          body: `Lead received from ${channelPhrase(input.channel, input.platform)} · ${source.name}${campaign}`,
           userId: actorId,
           createdAt: at(0),
         },
+        ...(pipeline.id !== masters.defaultPipeline.id
+          ? [{ leadId: created.id, type: "SYSTEM" as const, body: `Pipeline: ${pipeline.name} (chosen by product).`, createdAt: at(0) }]
+          : []),
+        ...(!src.matched || prod.unmatched.length
+          ? [
+              {
+                leadId: created.id,
+                type: "SYSTEM" as const,
+                body: [
+                  !src.matched ? `Source "${input.source}" isn't mapped in Masters → Sources, so it was filed under ${source.name}.` : null,
+                  prod.unmatched.length ? `Product answer${prod.unmatched.length > 1 ? "s" : ""} not in Masters → Products: ${prod.unmatched.join(", ")}.` : null,
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+                meta: { unmappedSource: src.matched ? null : input.source, unmappedProducts: prod.unmatched },
+                createdAt: at(0),
+              },
+            ]
+          : []),
         { leadId: created.id, type: "ROUTING", body: explanation.join("\n"), meta: { decisionId: routing.id, rule }, createdAt: at(1) },
       ];
       if (input.notes) timeline.push({ leadId: created.id, type: "NOTE", body: input.notes, userId: actorId, createdAt: at(0) });
@@ -381,17 +444,18 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
     },
     { timeout: 20_000 },
   );
+  } catch (e) {
+    if (isOpenPhoneConflict(e) && !opts._retried) return ingestLead(raw, { ...opts, _retried: true });
+    throw e;
+  }
 
   // 8. After commit: notifications + welcome message
   const name = `${firstName} ${lastName ?? ""}`.trim();
-  const shortName = `${firstName}${lastName ? ` ${lastName[0]}.` : ""}`;
   const href = `/dashboard/leads/${lead.id}`;
   const notes: Parameters<typeof notify>[0] = [];
   if (ownerId) {
     notes.push(
-      sameOwner
-        ? { userId: ownerId, type: "RETURNING", title: `Returning enquiry from ${shortName} (${sameOwner.refCode})`, body: `New enquiry ${lead.refCode} linked to your open lead.`, leadId: lead.id, href, dedupeKey: `ASSIGNED:${lead.id}:${ownerId}` }
-        : { userId: ownerId, type: "LEAD_ASSIGNED", title: `New lead: ${lead.refCode} ${name}`, body: `${branchLabel ?? ""}${afterHours ? " · after hours" : ""} · first call due ${friendlyIST(firstDue, now)}`, leadId: lead.id, href, dedupeKey: `ASSIGNED:${lead.id}:${ownerId}` },
+      { userId: ownerId, type: "LEAD_ASSIGNED", title: `New lead: ${lead.refCode} ${name}`, body: `${branchLabel ?? ""}${afterHours ? " · after hours" : ""} · first call due ${friendlyIST(firstDue, now)}`, leadId: lead.id, href, dedupeKey: `ASSIGNED:${lead.id}:${ownerId}` },
     );
   }
   for (const uid of queueOwners) {
@@ -409,10 +473,11 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
   if (lead.phoneE164 && !opts.quiet) {
     if (locationStatus === "OUT_OF_AREA" && settings.routing.outOfAreaAction === "AUTO_REGRET") {
       await sendTemplate({ leadId: lead.id, templateCode: "out_of_area_regret", dedupeKey: `REGRET:${lead.id}` });
-      await prisma.$transaction([
-        prisma.lead.update({ where: { id: lead.id }, data: { stage: "CLOSED_LOST", lostReason: "OTHERS", lostNote: "Out of service area", stageChangedAt: now } }),
+      const closed = outOfAreaLostStage(masters.stages, pipeline.id);
+      if (closed) await prisma.$transaction([
+        prisma.lead.update({ where: { id: lead.id }, data: { stageId: closed.id, openPhoneKey: null, lostNote: "Out of service area", stageChangedAt: now } }),
         prisma.task.updateMany({ where: { leadId: lead.id, status: "OPEN" }, data: { status: "CANCELLED" } }),
-        prisma.activity.create({ data: { leadId: lead.id, type: "STAGE_CHANGE", body: "Closed automatically: out of service area (regret message sent).", createdAt: now } }),
+        prisma.activity.create({ data: { leadId: lead.id, type: "STAGE_CHANGE", body: `Closed automatically: out of service area (regret message sent) → ${closed.label}.`, meta: { fromStageId: stage.id, toStageId: closed.id, fromLabel: stage.label, toLabel: closed.label }, createdAt: now } }),
       ]);
     } else if (settings.messaging.autoWelcome && locationStatus !== "OUT_OF_AREA") {
       await sendTemplate({
@@ -426,9 +491,7 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
   }
 
   const toast =
-    rule === "RETURNING_SAME_OWNER"
-      ? `Returning customer → ${assignee?.name} (same owner as ${sameOwner?.refCode})`
-      : locationStatus === "NEEDS_LOCATION"
+    locationStatus === "NEEDS_LOCATION"
         ? `Needs location → Online Desk${assignee?.name ? ` (${assignee.name})` : ""}`
         : locationStatus === "OUT_OF_AREA"
           ? `Out of area → manager queue${decision.candidates[0] ? ` (${decision.candidates[0].distanceKm.toFixed(1)} km from ${decision.candidates[0].name})` : ""}`
@@ -453,4 +516,82 @@ export async function ingestLead(raw: IngestInput, opts: { actorId?: string | nu
       duplicateOf: duplicateOf?.refCode ?? null,
     },
   };
+}
+
+/** Repeat enquiry from a number that already has an open lead: add it to that lead instead of a new row. */
+async function attachEnquiry(
+  open: Lead & { owner: { id: string; name: string } | null; branch: { name: string; kind: string } | null },
+  input: z.output<typeof ingestSchema>,
+  sourceName: string,
+  productIds: string[],
+  actorId: string | null,
+  now: Date,
+  receivedAt: Date,
+  quiet: boolean,
+): Promise<IngestResult> {
+  const name = `${open.firstName} ${open.lastName ?? ""}`.trim();
+  const branchName = open.branch ? (open.branch.kind === "ONLINE_DESK" ? "Online Desk" : shortBranch(open.branch.name)) : null;
+  const via = `${channelPhrase(input.channel, input.platform)} · ${sourceName}${input.campaignName ? ` · campaign "${input.campaignName}"` : ""}`;
+  const explanation = [
+    `Returning customer: ${open.phoneE164} already has open lead ${open.refCode}, so no second lead was created.`,
+    open.owner ? `The enquiry was added to ${open.refCode}; it stays with ${open.owner.name}${branchName ? ` (${branchName})` : ""}.` : `The enquiry was added to ${open.refCode}.`,
+  ];
+  const lead = await prisma.$transaction(async (tx) => {
+    const updated = await tx.lead.update({
+      where: { id: open.id },
+      data: {
+        lastActivityAt: now,
+        isReturning: true,
+        ...(productIds.length ? { products: { connect: productIds.map((id) => ({ id })) } } : {}),
+        ...(!open.email && input.email ? { email: input.email } : {}),
+        ...(!open.siteAddressRaw && input.siteAddress ? { siteAddressRaw: input.siteAddress } : {}),
+      },
+    });
+    await tx.activity.create({
+      data: {
+        leadId: open.id,
+        type: "SYSTEM",
+        body: [`New enquiry via ${via}.`, ...explanation.slice(1), input.notes ? `Note: ${input.notes}` : null].filter(Boolean).join("\n"),
+        userId: actorId,
+        meta: { repeatEnquiry: true, channel: input.channel, source: sourceName, externalId: input.externalId ?? null },
+        createdAt: receivedAt,
+      },
+    });
+    await writeAudit({ actorId, action: "lead.repeat_enquiry", entityType: "Lead", entityId: open.id, summary: `${open.refCode}: repeat enquiry via ${CHANNEL_LABEL[input.channel]}` }, tx);
+    return updated;
+  });
+  if (open.ownerId && !quiet) {
+    await notify({
+      userId: open.ownerId,
+      type: "RETURNING",
+      title: `Returning enquiry: ${open.refCode} ${name}`,
+      body: `New enquiry via ${via}`,
+      leadId: open.id,
+      href: `/dashboard/leads/${open.id}`,
+      dedupeKey: `REPEAT:${open.id}:${receivedAt.getTime()}`,
+    });
+  }
+  return {
+    ok: true,
+    lead,
+    decision: {
+      leadId: open.id,
+      refCode: open.refCode,
+      name,
+      rule: "RETURNING_SAME_OWNER",
+      branchName,
+      ownerName: open.owner?.name ?? null,
+      explanation,
+      candidates: [],
+      skipped: [],
+      toast: `Returning customer → added to ${open.refCode}${open.owner ? ` (${open.owner.name})` : ""}`,
+      duplicateOf: open.refCode,
+      existing: true,
+    },
+  };
+}
+
+export function isOpenPhoneConflict(e: unknown): boolean {
+  const err = e as { code?: string; meta?: { target?: string[] | string } };
+  return err?.code === "P2002" && String(err.meta?.target ?? "").includes("openPhoneKey");
 }

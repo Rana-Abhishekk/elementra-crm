@@ -1,10 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { requirePageRole } from "@/lib/access";
+import { can, requirePagePermission } from "@/lib/auth";
+import { userWhere, visibleBranchIds } from "@/lib/auth/scope";
 import { getSettings } from "@/lib/data/settings";
 import { FeatureBadge } from "@/components/feature-badge";
 import { Card, Chip, PageHeader, Tabs } from "@/components/ui";
-import { ROLE_LABEL } from "@/lib/domain/labels";
-import { OPEN_STAGES } from "@/lib/domain/stages";
 import { shortBranch } from "@/lib/domain/routing/decide";
 import { formatIST, startOfIstDay, workingMinutesBetween } from "@/lib/domain/time";
 import { isOnLeave } from "@/lib/domain/routing/assign";
@@ -14,25 +13,31 @@ const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math
 const fmtMins = (m: number | null) => (m == null ? "—" : m < 60 ? `${m} min` : `${(m / 60).toFixed(1)} h`);
 
 export default async function TeamPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const actor = await requirePageRole("OWNER", "ADMIN", "SALES_MANAGER");
+  const actor = await requirePagePermission("users.view");
+  const branchIds = visibleBranchIds(actor);
   const tab = (await searchParams).tab === "leave" ? "leave" : "members";
   const now = new Date();
   const monthStart = new Date(`${formatIST(now, "yyyy-MM")}-01T00:00:00+05:30`);
   const [branches, users, settings] = await Promise.all([
-    prisma.branch.findMany({ orderBy: [{ kind: "asc" }, { name: "asc" }], include: { _count: { select: { pincodeRules: true } } } }),
-    prisma.user.findMany({ where: { isActive: true, role: { not: "ADMIN" } }, include: { branch: true }, orderBy: [{ branch: { name: "asc" } }, { role: "asc" }, { name: "asc" }] }),
+    prisma.branch.findMany({ where: { isActive: true, ...(branchIds ? { id: { in: branchIds } } : {}) }, orderBy: [{ kind: "asc" }, { name: "asc" }], include: { _count: { select: { pincodeRules: true } } } }),
+    prisma.user.findMany({
+      where: { AND: [userWhere(actor), { isActive: true, branchId: { not: null } }] },
+      include: { branch: true, role: { select: { name: true, scope: true } } },
+      orderBy: [{ branch: { name: "asc" } }, { role: { scope: "desc" } }, { name: "asc" }],
+    }),
     getSettings(),
   ]);
   const ids = users.map((u) => u.id);
   const [open, overdue, monthLeads, monthWon, responses] = await Promise.all([
-    prisma.lead.groupBy({ by: ["ownerId"], where: { ownerId: { in: ids }, stage: { in: OPEN_STAGES } }, _count: true }),
+    prisma.lead.groupBy({ by: ["ownerId"], where: { ownerId: { in: ids }, stage: { category: "OPEN" } }, _count: true }),
     prisma.task.groupBy({ by: ["assigneeId"], where: { assigneeId: { in: ids }, status: "OPEN", dueAt: { lt: now }, type: { in: ["FOLLOW_UP", "FIRST_CALL", "QUOTATION_FOLLOW_UP"] } }, _count: true }),
     prisma.lead.groupBy({ by: ["ownerId"], where: { ownerId: { in: ids }, assignedAt: { gte: monthStart } }, _count: true }),
-    prisma.lead.groupBy({ by: ["ownerId"], where: { ownerId: { in: ids }, stage: "CLOSED_WON", stageChangedAt: { gte: monthStart } }, _count: true, _sum: { orderValueInr: true } }),
+    prisma.lead.groupBy({ by: ["ownerId"], where: { ownerId: { in: ids }, stage: { category: "WON" }, stageChangedAt: { gte: monthStart } }, _count: true, _sum: { orderValueInr: true } }),
     prisma.lead.findMany({ where: { ownerId: { in: ids }, firstContactedAt: { not: null }, createdAt: { gte: startOfIstDay(now, -29) } }, select: { ownerId: true, createdAt: true, firstContactedAt: true } }),
   ]);
   const count = (rows: { ownerId?: string | null; assigneeId?: string; _count: number }[], id: string) => rows.find((r) => (r.ownerId ?? r.assigneeId) === id)?._count ?? 0;
-  const canEdit = (u: (typeof users)[number]) => actor.role !== "SALES_MANAGER" || u.branchId === actor.branchId;
+  // userWhere already limits the list to people the actor may see; changing them needs users.manage
+  const canEdit = () => can(actor, "users.manage");
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -92,11 +97,11 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
                     <tr key={u.id} className="border-t border-slate-100">
                       <td className="p-3">
                         <div className="font-medium text-ink">{u.name}</div>
-                        <div className="text-xs text-slate-500">{ROLE_LABEL[u.role]}</div>
+                        <div className="text-xs text-slate-500">{u.role.name}</div>
                       </td>
                       <td className="p-3">{u.branch ? (u.branch.kind === "ONLINE_DESK" ? "Online Desk" : shortBranch(u.branch.name)) : "—"}</td>
-                      <td className="p-3">{u.role === "OWNER" ? <span className="text-xs text-slate-400">—</span> : <ReceivesToggle userId={u.id} value={u.receivesLeads} disabled={!canEdit(u)} />}</td>
-                      <td className="p-3">{u.role === "OWNER" ? <span className="text-xs text-slate-400">—</span> : <LeaveToggle userId={u.id} onLeave={isOnLeave(u, now)} until={u.onLeaveUntil} disabled={!canEdit(u)} />}</td>
+                      <td className="p-3"><ReceivesToggle userId={u.id} value={u.receivesLeads} disabled={!canEdit()} /></td>
+                      <td className="p-3"><LeaveToggle userId={u.id} onLeave={isOnLeave(u, now)} until={u.onLeaveUntil} disabled={!canEdit()} /></td>
                       <td className="p-3 text-right">{count(open, u.id)}</td>
                       <td className="p-3 text-right">{od ? <Chip className="bg-rose-50 text-rose-700 ring-rose-200">{od}</Chip> : 0}</td>
                       <td className="p-3 text-right">{count(monthLeads, u.id)}</td>
@@ -110,7 +115,7 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
           </Card>
         </>
       ) : (
-        <LeavePlanner users={users.filter((u) => u.role !== "OWNER").map((u) => ({ id: u.id, name: u.name, onLeave: isOnLeave(u, now), until: u.onLeaveUntil }))} now={now} />
+        <LeavePlanner users={users.map((u) => ({ id: u.id, name: u.name, onLeave: isOnLeave(u, now), until: u.onLeaveUntil }))} now={now} />
       )}
     </div>
   );

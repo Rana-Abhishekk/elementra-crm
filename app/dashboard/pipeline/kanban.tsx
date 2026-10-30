@@ -5,12 +5,10 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { DndContext, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import type { LeadStage, Product } from "@prisma/client";
 import { FollowUpBadge } from "@/components/lead-badges";
 import { Chip } from "@/components/ui";
-import { PRODUCT_LABEL } from "@/lib/domain/labels";
 import { formatLakh } from "@/lib/domain/money";
-import { OPEN_STAGES, STAGE_LABEL, canTransition } from "@/lib/domain/stages";
+import { canTransition, type StageRef } from "@/lib/domain/stages";
 import { cn } from "@/lib/utils";
 import { LostModal, WonModal } from "../leads/[id]/stage-control";
 import { changeStageAction } from "../leads/actions";
@@ -19,9 +17,9 @@ interface Card {
   id: string;
   refCode: string;
   name: string;
-  stage: LeadStage;
+  stageId: string;
   area: string;
-  products: Product[];
+  products: string[];
   value: number | null;
   owner: string | null;
   nextFollowUpAt: Date | null;
@@ -30,11 +28,37 @@ interface Card {
 
 const initials = (n: string | null) => (n ? n.split(" ").map((p) => p[0]).slice(0, 2).join("") : "–");
 
-export function Kanban({ leads, wonCount, lostCount, canReopen }: { leads: Card[]; wonCount: number; lostCount: number; canReopen: boolean }) {
+const WON = "__won__";
+const LOST = "__lost__";
+
+/** Columns = the pipeline's active Open stages in the admin's order; Won / Lost open a stage picker. */
+export function Kanban({
+  leads,
+  stages,
+  wonCount,
+  lostCount,
+  canReopen,
+  canMove,
+}: {
+  leads: Card[];
+  /** Every stage of the selected pipeline (inactive ones too, for leads still sitting in them) */
+  stages: StageRef[];
+  wonCount: number;
+  lostCount: number;
+  canReopen: boolean;
+  canMove: boolean;
+}) {
   const router = useRouter();
   const [cards, setCards] = useState(leads);
   const [, start] = useTransition();
-  const [closing, setClosing] = useState<{ card: Card; to: "CLOSED_WON" | "CLOSED_LOST" } | null>(null);
+  const [closing, setClosing] = useState<{ card: Card; to: typeof WON | typeof LOST } | null>(null);
+  const active = stages.filter((st) => st.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
+  const columns = active.filter((st) => st.category === "OPEN");
+  // Leads in a deactivated open stage still need a column until they're moved
+  const orphaned = stages.filter((st) => !st.isActive && st.category === "OPEN" && cards.some((c) => c.stageId === st.id));
+  const wonStages = active.filter((st) => st.category === "WON");
+  const lostStages = active.filter((st) => st.category === "LOST");
+  const byId = (id: string) => stages.find((st) => st.id === id);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }));
 
   // Server data wins after every refresh
@@ -43,19 +67,22 @@ export function Kanban({ leads, wonCount, lostCount, canReopen }: { leads: Card[
 
   function onDragEnd(e: DragEndEvent) {
     const card = cards.find((c) => c.id === e.active.id);
-    const to = e.over?.id as LeadStage | undefined;
-    if (!card || !to || to === card.stage) return;
-    if (!canTransition(card.stage, to, canReopen)) {
+    const to = e.over?.id as string | undefined;
+    if (!card || !to || to === card.stageId) return;
+    if (!canMove) return void toast.error("You don't have permission to move stages.");
+    if (to === WON || to === LOST) return setClosing({ card, to });
+    const from = byId(card.stageId);
+    const target = byId(to);
+    if (!from || !target || !canTransition(stages, from, target, canReopen)) {
       toast.error("Leads move forward, one step back, or to Won / Lost.");
       return;
     }
-    if (to === "CLOSED_LOST" || to === "CLOSED_WON") return setClosing({ card, to });
     const before = cards;
-    setCards((cs) => cs.map((c) => (c.id === card.id ? { ...c, stage: to } : c)));
+    setCards((cs) => cs.map((c) => (c.id === card.id ? { ...c, stageId: to } : c)));
     start(async () => {
-      const res = await changeStageAction(card.id, { stage: to });
+      const res = await changeStageAction(card.id, { stageId: to });
       if (res.ok) {
-        toast.success(`${card.name}: ${STAGE_LABEL[to]}`);
+        toast.success(`${card.name}: ${target.label}`);
         router.refresh();
       } else {
         setCards(before);
@@ -69,11 +96,11 @@ export function Kanban({ leads, wonCount, lostCount, canReopen }: { leads: Card[
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
       <div className="-mx-4 overflow-x-auto px-4 pb-4 md:mx-0 md:px-0">
         <div className="flex w-max gap-3">
-          {OPEN_STAGES.map((stage) => {
-            const col = cards.filter((c) => c.stage === stage);
+          {[...columns, ...orphaned].map((stage) => {
+            const col = cards.filter((c) => c.stageId === stage.id);
             const sum = col.reduce((s, c) => s + (c.value ?? 0), 0);
             return (
-              <Column key={stage} id={stage} title={STAGE_LABEL[stage]} count={col.length} sum={sum}>
+              <Column key={stage.id} id={stage.id} title={stage.isActive ? stage.label : `${stage.label} (inactive)`} color={stage.color} count={col.length} sum={sum}>
                 {col.map((c) => (
                   <DraggableCard key={c.id} card={c} now={now} />
                 ))}
@@ -81,22 +108,22 @@ export function Kanban({ leads, wonCount, lostCount, canReopen }: { leads: Card[
             );
           })}
           <div className="flex w-44 shrink-0 flex-col gap-3">
-            <DropZone id="CLOSED_WON" label="Won" hint={`${wonCount} in the last 30 days`} tone="emerald" />
-            <DropZone id="CLOSED_LOST" label="Lost" hint={`${lostCount} in the last 30 days`} tone="rose" />
+            {wonStages.length > 0 && <DropZone id={WON} label={wonStages.length === 1 ? wonStages[0].label : "Won"} hint={`${wonCount} in the last 30 days`} tone="emerald" />}
+            {lostStages.length > 0 && <DropZone id={LOST} label="Lost" hint={`${lostCount} in the last 30 days`} tone="rose" />}
           </div>
         </div>
       </div>
-      {closing?.to === "CLOSED_LOST" && <LostModal open onClose={() => setClosing(null)} leadId={closing.card.id} possessionDate={closing.card.possessionDate} />}
-      {closing?.to === "CLOSED_WON" && <WonModal open onClose={() => setClosing(null)} leadId={closing.card.id} orderValue={closing.card.value} />}
+      {closing?.to === LOST && <LostModal open onClose={() => setClosing(null)} leadId={closing.card.id} stages={lostStages} possessionDate={closing.card.possessionDate} />}
+      {closing?.to === WON && <WonModal open onClose={() => setClosing(null)} leadId={closing.card.id} stages={wonStages} orderValue={closing.card.value} />}
     </DndContext>
   );
 }
 
-function Column({ id, title, count, sum, children }: { id: string; title: string; count: number; sum: number; children: React.ReactNode }) {
+function Column({ id, title, color, count, sum, children }: { id: string; title: string; color: string; count: number; sum: number; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div ref={setNodeRef} className={cn("flex w-64 shrink-0 flex-col rounded-xl bg-slate-100/80 p-2", isOver && "bg-gold-light ring-2 ring-gold")}>
-      <div className="px-1 pt-1 pb-2">
+      <div className="border-t-2 px-1 pt-1 pb-2" style={{ borderColor: color }}>
         <div className="truncate text-xs font-semibold text-ink" title={title}>
           {title}
         </div>
@@ -153,7 +180,7 @@ function DraggableCard({ card, now }: { card: Card; now: Date }) {
       <div className="mt-1.5 flex flex-wrap gap-1">
         {card.products.slice(0, 3).map((p) => (
           <Chip key={p} className="bg-slate-50 text-[10px] text-slate-600 ring-slate-200">
-            {PRODUCT_LABEL[p]}
+            {p}
           </Chip>
         ))}
       </div>

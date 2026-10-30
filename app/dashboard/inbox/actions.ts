@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { canSeeLead, isDemoMode } from "@/lib/access";
+import { isDemoMode } from "@/lib/auth";
+import { canSeeLead } from "@/lib/auth/scope";
 import { simulateCustomerReply } from "@/lib/domain/messaging/replies";
 
 export async function simulateReplyAction(leadId?: string): Promise<{ ok: true; message: string } | { ok: false; error: string }> {

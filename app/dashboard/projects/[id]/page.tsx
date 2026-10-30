@@ -3,10 +3,10 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Check } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { canSeeLead } from "@/lib/access";
+import { canSeeLead } from "@/lib/auth/scope";
 import { FeatureBadge } from "@/components/feature-badge";
 import { Card, PageHeader } from "@/components/ui";
-import { PROJECT_STAGES, PROJECT_STAGE_LABEL, PRODUCT_LABEL } from "@/lib/domain/labels";
+import { PROJECT_STAGES, PROJECT_STAGE_LABEL } from "@/lib/domain/labels";
 import { formatIST, formatISTDate } from "@/lib/domain/time";
 import { formatINR } from "@/lib/domain/money";
 import { shortBranch } from "@/lib/domain/routing/decide";
@@ -16,7 +16,7 @@ import { AdvanceButton } from "./advance-button";
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const user = await requireUser();
-  const p = await prisma.project.findUnique({ where: { id }, include: { lead: true, branch: true, designer: { select: { name: true } }, supervisor: { select: { name: true } } } });
+  const p = await prisma.project.findUnique({ where: { id }, include: { lead: { include: { products: { select: { name: true }, orderBy: { sortOrder: "asc" } } } }, branch: true, designer: { select: { name: true } }, supervisor: { select: { name: true } } } });
   if (!p || !canSeeLead(user, p.lead)) notFound();
   const i = PROJECT_STAGES.indexOf(p.stage);
   const history = (p.stageHistory as { stage: string; at: string; by?: string }[]) ?? [];
@@ -29,7 +29,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       <PageHeader
         title={`${p.lead.firstName} ${p.lead.lastName ?? ""}`}
         badge={<FeatureBadge feature="F36" />}
-        description={`${p.lead.refCode} · ${shortBranch(p.branch.name)} · ${p.lead.products.map((x) => PRODUCT_LABEL[x]).join(", ")} · ${formatINR(p.lead.orderValueInr)}`}
+        description={`${p.lead.refCode} · ${shortBranch(p.branch.name)} · ${p.lead.products.map((x) => x.name).join(", ")} · ${formatINR(p.lead.orderValueInr)}`}
         actions={i < PROJECT_STAGES.length - 1 ? <AdvanceButton id={p.id} next={PROJECT_STAGE_LABEL[PROJECT_STAGES[i + 1]]} /> : null}
       />
       <Card className="mb-6 overflow-x-auto p-5">

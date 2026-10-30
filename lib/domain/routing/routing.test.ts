@@ -84,7 +84,7 @@ const NOW = new Date("2026-10-28T08:00:00Z");
 const m = (id: string, o: Partial<Member> = {}): Member => ({
   id,
   name: id,
-  role: "SALES_REP",
+  isManager: false,
   isActive: true,
   receivesLeads: true,
   onLeave: false,
@@ -127,7 +127,7 @@ describe("pickAssignee", () => {
   });
 
   it("ignores members who don't receive leads", () => {
-    const pick = pickAssignee("Andheri", "ROUND_ROBIN", [m("mgr", { role: "SALES_MANAGER", receivesLeads: false }), m("rep")], NOW);
+    const pick = pickAssignee("Andheri", "ROUND_ROBIN", [m("mgr", { isManager: true, receivesLeads: false }), m("rep")], NOW);
     expect(pick.userId).toBe("rep");
   });
 
@@ -139,7 +139,7 @@ describe("pickAssignee", () => {
   });
 
   it("falls back to the branch manager, else unassigned", () => {
-    const mgr = m("Farah", { role: "SALES_MANAGER", receivesLeads: false });
+    const mgr = m("Farah", { isManager: true, receivesLeads: false });
     expect(pickAssignee("Andheri", "ROUND_ROBIN", [mgr, m("Arjun", { onLeave: true })], NOW)).toMatchObject({ userId: "Farah", fallback: "MANAGER" });
     expect(pickAssignee("Andheri", "ROUND_ROBIN", [m("Arjun", { onLeave: true })], NOW)).toMatchObject({ userId: null, fallback: "UNASSIGNED" });
   });

@@ -27,10 +27,10 @@ export async function rerouteLead(
   actorId: string | null,
   now = new Date(),
 ): Promise<RerouteResult | Fail> {
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, include: { branch: true, owner: true } });
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, include: { branch: true, owner: true, stage: { select: { isInitial: true } } } });
   if (!lead) return { ok: false, error: "Lead not found" };
   const ctx = await loadRoutingContext();
-  const actor = actorId ? await prisma.user.findUnique({ where: { id: actorId }, select: { name: true, role: true } }) : null;
+  const actor = actorId ? await prisma.user.findUnique({ where: { id: actorId }, select: { name: true } }) : null;
 
   const siteAddress = input.siteAddress !== undefined ? input.siteAddress : lead.siteAddressRaw;
   const pincode = input.pincode !== undefined ? input.pincode : lead.pincode;
@@ -148,7 +148,7 @@ export async function rerouteLead(
           data: {
             leadId: lead.id,
             assigneeId: assignee.userId,
-            type: lead.stage === "NEW" ? "FIRST_CALL" : "FOLLOW_UP",
+            type: lead.stage.isInitial ? "FIRST_CALL" : "FOLLOW_UP",
             title: isHandover ? `Call ${lead.firstName} — handed over from the Online Desk` : `Call ${lead.firstName} — newly assigned to you`,
             dueAt: due,
             createdById: actorId,

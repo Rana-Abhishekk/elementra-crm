@@ -1,13 +1,19 @@
-import { PrismaClient, Role, type Prisma } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { BRANCHES, LOCALITIES, PINCODE_RULES } from "../lib/domain/geo/gazetteer";
 import { ARCHITECTS, DEMO_PASSWORD, DEMO_USERS, TEMPLATES } from "../lib/demo/reference";
 import { DEFAULT_SETTINGS } from "../lib/domain/settings";
+import { PIPELINES, PRODUCTS, ROLES, SOURCES, SUPER_ADMIN_ROLE } from "../lib/domain/masters/defaults";
 
 const prisma = new PrismaClient();
 
-// Base data, safe to re-run: admin, branches, pincode rules, localities, demo users, templates, settings
+// Base data, safe to re-run: masters (roles, sources, products, pipelines), admin, branches, pincode rules,
+// localities, demo users, templates, settings. Masters are create-only: an admin's edits survive a re-seed.
 async function main() {
+  await seedRoles();
+  await seedSources();
+  await seedProducts();
+  await seedPipelines();
   await seedAdmin();
   const branchIds = await seedBranches();
   await seedLocalities();
@@ -29,10 +35,11 @@ async function seedAdmin() {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
+  const role = await prisma.role.findUniqueOrThrow({ where: { name: SUPER_ADMIN_ROLE } });
   await prisma.user.upsert({
     where: { email },
-    update: { passwordHash, role: Role.ADMIN },
-    create: { email, name, passwordHash, role: Role.ADMIN, receivesLeads: false },
+    update: { passwordHash, roleId: role.id, isActive: true },
+    create: { email, name, passwordHash, roleId: role.id, receivesLeads: false, designation: "Administrator" },
   });
   console.log(`Admin ready: ${email}`);
 }
@@ -78,19 +85,100 @@ async function seedLocalities() {
 
 async function seedDemoUsers(branchIds: Record<string, string>) {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const roles = Object.fromEntries((await prisma.role.findMany()).map((r) => [r.name, r.id]));
   for (const u of DEMO_USERS) {
+    if (!roles[u.role]) throw new Error(`Role "${u.role}" missing — seedRoles() runs first.`);
     const data = {
       name: u.name,
-      role: u.role,
+      roleId: roles[u.role],
       phone: u.phone,
       branchId: u.branchCode ? branchIds[u.branchCode] : null,
+      extraBranches: { set: (u.extraBranchCodes ?? []).map((c) => ({ id: branchIds[c] })) },
       receivesLeads: u.receivesLeads,
+      employeeCode: u.employeeCode,
+      designation: u.designation,
       passwordHash,
       isActive: true,
+      deactivatedAt: null,
+      mustChangePassword: false,
     };
-    await prisma.user.upsert({ where: { email: u.email }, update: data, create: { email: u.email, ...data } });
+    await prisma.user.upsert({
+      where: { email: u.email },
+      update: data,
+      create: { email: u.email, ...data, extraBranches: { connect: (u.extraBranchCodes ?? []).map((c) => ({ id: branchIds[c] })) } },
+    });
+  }
+  // Line managers (display only)
+  for (const u of DEMO_USERS.filter((x) => x.reportsTo)) {
+    const boss = await prisma.user.findUnique({ where: { email: u.reportsTo! }, select: { id: true } });
+    await prisma.user.update({ where: { email: u.email }, data: { reportsToId: boss?.id ?? null } });
   }
   console.log(`Demo users: ${DEMO_USERS.length} (password ${DEMO_PASSWORD})`);
+}
+
+// ---------- masters (fixed ids, so the Week 1 migration's rows and these are the same rows) ----------
+
+async function seedRoles() {
+  for (const r of ROLES) {
+    const existing = await prisma.role.findFirst({ where: { OR: [{ id: r.id }, { name: r.name }] } });
+    if (existing) {
+      // The locked Super Admin always holds every permission (new permissions added in code included)
+      if (r.isLocked) await prisma.role.update({ where: { id: existing.id }, data: { permissions: r.permissions, scope: r.scope, isLocked: true, isSystem: true } });
+      continue;
+    }
+    await prisma.role.create({ data: { id: r.id, name: r.name, description: r.description, scope: r.scope, permissions: r.permissions, isSystem: true, isLocked: !!r.isLocked } });
+  }
+  console.log(`Roles: ${ROLES.length}`);
+}
+
+async function seedSources() {
+  for (const [i, s] of SOURCES.entries()) {
+    if (await prisma.source.findFirst({ where: { OR: [{ id: s.id }, { name: s.name }] } })) continue;
+    await prisma.source.create({ data: { id: s.id, name: s.name, color: s.color, isPaid: !!s.isPaid, isFallback: !!s.isFallback, integrationKeys: s.integrationKeys, sortOrder: i + 1 } });
+  }
+  console.log(`Sources: ${SOURCES.length}`);
+}
+
+async function seedProducts() {
+  for (const [i, p] of PRODUCTS.entries()) {
+    if (await prisma.product.findFirst({ where: { OR: [{ id: p.id }, { name: p.name }] } })) continue;
+    await prisma.product.create({ data: { id: p.id, name: p.name, metaAnswerKeys: p.metaAnswerKeys, sortOrder: i + 1 } });
+  }
+  console.log(`Products: ${PRODUCTS.length}`);
+}
+
+async function seedPipelines() {
+  for (const [i, p] of PIPELINES.entries()) {
+    if (await prisma.pipeline.findFirst({ where: { OR: [{ id: p.id }, { name: p.name }] } })) continue;
+    const autoProducts = await prisma.product.findMany({ where: { name: { in: p.autoProducts } }, select: { id: true } });
+    await prisma.pipeline.create({
+      data: {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        isDefault: p.isDefault && !(await prisma.pipeline.findFirst({ where: { isDefault: true } })),
+        sortOrder: i,
+        autoProducts: { connect: autoProducts },
+        stages: {
+          create: p.stages.map((s, k) => ({
+            ...(s.id ? { id: s.id } : {}),
+            label: s.label,
+            category: s.category,
+            sortOrder: k + 1,
+            color: s.color,
+            isInitial: !!s.isInitial,
+            requiresQualification: !!s.requiresQualification,
+            askReviveDate: !!s.askReviveDate,
+            staleDays: s.staleDays ?? null,
+            staleTaskType: s.staleTaskType ?? (s.staleDays ? "FOLLOW_UP" : null),
+            probability: s.probability ?? null,
+            systemKey: s.systemKey,
+          })),
+        },
+      },
+    });
+  }
+  console.log(`Pipelines: ${PIPELINES.length}`);
 }
 
 async function seedArchitects() {

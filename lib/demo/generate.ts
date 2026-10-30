@@ -1,15 +1,17 @@
 // Synthetic demo history (02_REFERENCE_DATA §9): ~180 leads over the last 75 days, relative to `now`,
 // deterministic (PRNG seed 20261028). Uses the real routing/assignment functions so every lead carries a
 // believable explanation. Writes directly (bulk) rather than through ingestLead() for speed.
-import type { ActivityType, CallOutcome, LeadSource, LeadStage, LostReason, Prisma, Priority, Product, ProjectStage } from "@prisma/client";
+import type { ActivityType, CallOutcome, Prisma, Priority, ProjectStage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/data/settings";
 import { resolveLocation } from "@/lib/domain/geo/resolve";
 import { decideBranch, shortBranch } from "@/lib/domain/routing/decide";
 import { addWorkingMinutes, startOfIstDay, wallTime } from "@/lib/domain/time";
 import { renderTemplate } from "@/lib/domain/messaging/render";
-import { productPhrase, PROJECT_STAGES } from "@/lib/domain/labels";
-import { STAGE_LABEL, stageLabel } from "@/lib/domain/stages";
+import { PROJECT_STAGES } from "@/lib/domain/labels";
+import { productPhrase } from "@/lib/domain/masters/resolve";
+import { openPhoneKey, stageByKey } from "@/lib/domain/stages";
+import { loadMasters } from "@/lib/data/masters";
 import { loadRoutingContext } from "@/lib/domain/leads/context";
 import {
   CAMPAIGN_ADS,
@@ -49,6 +51,13 @@ const OOA_TEXT: Record<string, string> = {
 };
 
 type Outcome = "WOR" | "AND" | "TAR" | "PUN" | "OOA" | "NEEDS";
+// The plan uses the seed's stable keys: stage systemKeys of the default pipeline (lost reasons become
+// LOST_<reason>), seeded Source / Product ids. They're turned into DB rows when written.
+type LeadStage = "NEW" | "CONTACTED" | "QUALIFIED" | "DISCOVERY_MEETING" | "QUOTATION_REQUESTED" | "QUOTATION_SENT" | "NEGOTIATION" | "TOKEN_RECEIVED" | "CLOSED_WON" | "CLOSED_LOST";
+type LostReason = "BUDGET" | "COMPETITOR" | "TIMELINE" | "NO_RESPONSE" | "ON_HOLD" | "OTHERS";
+const OPEN_KEYS: LeadStage[] = ["NEW", "CONTACTED", "QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED", "QUOTATION_SENT", "NEGOTIATION", "TOKEN_RECEIVED"];
+const stageKey = (stage: LeadStage, lost: LostReason | null) => (stage === "CLOSED_LOST" ? `LOST_${lost ?? "OTHERS"}` : stage);
+const META_SOURCES = new Set(["src_instagram_paid", "src_facebook"]);
 
 interface LeadPlan {
   idx: number;
@@ -58,11 +67,11 @@ interface LeadPlan {
   phone: string;
   email: string | null;
   salutation: string | null;
-  source: LeadSource;
+  source: string;
   outcome: Outcome;
   address: string | null;
   pincode: string | null;
-  products: Product[];
+  products: string[];
   priority: Priority;
   stage: LeadStage;
   lostReason: LostReason | null;
@@ -122,11 +131,23 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
   const settings = await getSettings();
   const wh = settings.workingHours;
   const branchByCode = Object.fromEntries(ctx.branches.map((b) => [b.code, b]));
-  const users = await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true, branchId: true, receivesLeads: true, email: true } });
+  const masters = await loadMasters();
+  const pipelineId = masters.defaultPipeline.id;
+  const stageOf = (key: string) => {
+    const st = stageByKey(masters.stages, pipelineId, key);
+    if (!st) throw new Error(`Demo data needs the seeded stage ${key} in ${masters.defaultPipeline.name}. Run npm run db:seed.`);
+    return st;
+  };
+  const productName = (id: string) => masters.productById.get(id)?.name ?? "Interiors";
+  const users = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, branchId: true, receivesLeads: true, email: true, createdAt: true, role: { select: { scope: true, isLocked: true, permissions: true } } },
+    orderBy: { createdAt: "asc" },
+  });
   const repsOf = (branchId: string) => users.filter((u) => u.branchId === branchId && u.receivesLeads);
-  const managerOf = (branchId: string) => users.find((u) => u.branchId === branchId && u.role === "SALES_MANAGER");
-  const presales = users.filter((u) => u.role === "PRESALES");
-  const owner = users.find((u) => u.role === "OWNER") ?? users.find((u) => u.role === "ADMIN")!;
+  const managerOf = (branchId: string) => users.find((u) => u.branchId === branchId && u.role.scope === "BRANCH");
+  const presales = users.filter((u) => !u.role.isLocked && u.role.permissions.includes("queues.needsLocation"));
+  const owner = users.find((u) => u.email === "aarav@elementra.test") ?? users.find((u) => u.role.isLocked)!;
   const arjun = users.find((u) => u.email === "arjun@elementra.test");
   const architects = await prisma.contact.findMany({ where: { kind: "ARCHITECT" }, select: { id: true, firstName: true, lastName: true, title: true, companyId: true } });
   const templates = await prisma.messageTemplate.findMany({ where: { language: "en" } });
@@ -153,7 +174,7 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
       address = outcome !== "OOA" && rng() < 0.55 ? `Flat ${intBetween(rng, 101, 2304)}, ${pick(rng, SOCIETIES)}, ${text}` : text;
       if (outcome !== "OOA" && rng() < 0.2) pincode = ctx.localities.find((l) => l.name === area)?.pincode ?? null;
     }
-    const products = weighted(rng, [[["KITCHEN"], 58], [["KITCHEN", "WARDROBES"], 20], [["WARDROBES"], 8], [["KITCHEN", "WARDROBES", "FURNITURE", "BEDS"], 8], [["APPLIANCES"], 3], [["OTHERS"], 3]] as const) as Product[];
+    const products = weighted(rng, [[["prd_kitchen"], 58], [["prd_kitchen", "prd_wardrobes"], 20], [["prd_wardrobes"], 8], [["prd_kitchen", "prd_wardrobes", "prd_furniture", "prd_beds"], 8], [["prd_appliances"], 3], [["prd_others"], 3]] as const) as unknown as string[];
     const { stage, lostReason } = outcome === "OOA" ? { stage: (rng() < 0.6 && ageDays > 5 ? "CLOSED_LOST" : "NEW") as LeadStage, lostReason: ageDays > 5 ? ("OTHERS" as LostReason) : null } : stageFor(rng, ageDays);
     const fixedLost = outcome === "OOA" && stage === "NEW" ? null : lostReason;
     const progressedWithoutLocation = outcome === "NEEDS" && stage !== "NEW" && stage !== "CONTACTED";
@@ -182,6 +203,8 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
   for (const k of [40, 90, 130, 170]) {
     const orig = plans[k - 30];
     Object.assign(plans[k], { first: orig.first, last: orig.last, phone: orig.phone, email: orig.email, outcome: orig.outcome === "OOA" || orig.outcome === "NEEDS" ? "AND" : orig.outcome, address: orig.address ?? "Andheri West" });
+    // One open lead per phone: a returning customer's earlier enquiry is closed
+    if (OPEN_KEYS.includes(orig.stage)) Object.assign(orig, { stage: "CLOSED_LOST", lostReason: "NO_RESPONSE" });
   }
   // §9.8 live-state guarantees don't hold by chance alone — nudge the plan deterministically
   const age = (pl: LeadPlan) => (now.getTime() - pl.createdAt.getTime()) / DAY;
@@ -216,6 +239,7 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
   let ref = Number(seq[0].n);
   const contactsByPhone = new Map<string, string>();
   const leadIdsByPhone = new Map<string, string>();
+  const openPhones = new Set<string>();
   let created = 0;
 
   for (const p of plans) {
@@ -289,26 +313,28 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
         handedOverById: viaDesk ? (deskUser?.id ?? null) : null,
         handedOverAt,
         assignedAt: p.createdAt,
-        stage: p.stage,
+        pipelineId,
+        stageId: stageOf(stageKey(p.stage, p.lostReason)).id,
+        // Returning customers (same phone) only reach the DB after their earlier lead, so the newest open one keeps the key
+        openPhoneKey: OPEN_KEYS.includes(p.stage) && !openPhones.has(p.phone) ? openPhoneKey("OPEN", p.phone) : null,
         stageChangedAt,
-        lostReason: p.lostReason,
         lostNote: isOoa && p.stage === "CLOSED_LOST" ? "Out of service area" : null,
         reviveAt,
-        products: p.products,
+        products: { connect: p.products.filter((id) => masters.productById.has(id)).map((id) => ({ id })) },
         priority: p.priority,
         possessionDate: rng() < 0.5 ? new Date(p.createdAt.getTime() + intBetween(rng, 30, 300) * DAY) : null,
         estimatedValueInr: est,
         orderValueInr: order,
         architectId: architect?.id ?? null,
         architectCommissionPct: commission ? Number(commission) : null,
-        source: p.source,
-        intakeChannel: p.source === "INSTAGRAM_PAID" || p.source === "FACEBOOK" ? "META_LEAD_AD" : p.source === "WEBSITE" ? "WEBSITE_FORM" : p.source === "WHATSAPP" ? "WHATSAPP" : "MANUAL",
-        campaignName: p.source === "INSTAGRAM_PAID" || p.source === "FACEBOOK" ? campaignForMonth(MONTH(p.createdAt)) : null,
-        adsetName: p.source === "INSTAGRAM_PAID" || p.source === "FACEBOOK" ? (p.outcome === "PUN" ? CAMPAIGN_ADSETS[2] : pick(rng, CAMPAIGN_ADSETS.slice(0, 2))) : null,
-        adName: p.source === "INSTAGRAM_PAID" || p.source === "FACEBOOK" ? pick(rng, CAMPAIGN_ADS) : null,
-        formName: p.source === "INSTAGRAM_PAID" || p.source === "FACEBOOK" ? CAMPAIGN_FORM : null,
-        platform: p.source === "FACEBOOK" ? "fb" : p.source.startsWith("INSTAGRAM") ? "ig" : null,
-        externalId: p.source === "INSTAGRAM_PAID" || p.source === "FACEBOOK" ? `DEMO-${DEMO_SEED}-${p.idx}` : null,
+        sourceId: p.source,
+        intakeChannel: META_SOURCES.has(p.source) ? "META_LEAD_AD" : p.source === "src_website" ? "WEBSITE_FORM" : p.source === "src_whatsapp" ? "WHATSAPP" : "MANUAL",
+        campaignName: META_SOURCES.has(p.source) ? campaignForMonth(MONTH(p.createdAt)) : null,
+        adsetName: META_SOURCES.has(p.source) ? (p.outcome === "PUN" ? CAMPAIGN_ADSETS[2] : pick(rng, CAMPAIGN_ADSETS.slice(0, 2))) : null,
+        adName: META_SOURCES.has(p.source) ? pick(rng, CAMPAIGN_ADS) : null,
+        formName: META_SOURCES.has(p.source) ? CAMPAIGN_FORM : null,
+        platform: p.source === "src_facebook" ? "fb" : p.source.startsWith("src_instagram") ? "ig" : null,
+        externalId: META_SOURCES.has(p.source) ? `DEMO-${DEMO_SEED}-${p.idx}` : null,
         duplicateOfId: priorDup,
         isReturning: !!priorDup,
         lastActivityAt: contacted ? lastActivityAt : p.createdAt,
@@ -317,6 +343,7 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
       },
     });
     leadIdsByPhone.set(p.phone, lead.id);
+    if (lead.openPhoneKey) openPhones.add(p.phone);
     created++;
 
     // Routing decision + base timeline
@@ -347,7 +374,7 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
     const acts: Prisma.ActivityCreateManyInput[] = [];
     const at = (d: Date, type: ActivityType, body: string, extra: Partial<Prisma.ActivityCreateManyInput> = {}) => acts.push({ leadId: lead.id, type, body, createdAt: d, ...extra });
     const t0 = p.createdAt.getTime();
-    at(new Date(t0), "SYSTEM", `Lead received from ${p.source === "INSTAGRAM_PAID" || p.source === "FACEBOOK" ? (p.source === "FACEBOOK" ? "Facebook lead ad" : "Instagram lead ad") : "manual entry"} · ${p.source.replace(/_/g, " ").toLowerCase()}`);
+    at(new Date(t0), "SYSTEM", `Lead received from ${META_SOURCES.has(p.source) ? (p.source === "src_facebook" ? "Facebook lead ad" : "Instagram lead ad") : "manual entry"} · ${masters.sourceById.get(p.source)?.name ?? "Other"}`);
     at(new Date(t0 + 10), "ROUTING", decision.explanation.join("\n"));
     if (ownerName && !viaDesk) at(new Date(t0 + 20), "ASSIGNMENT", `Assigned to ${ownerName} (${branchName}).${strategyLine ? `\n${strategyLine}` : ""}`);
     if (viaDesk && handedOverAt) at(handedOverAt, "HANDOVER", `Handed over to ${branchName} → ${ownerName} by ${deskUser?.name ?? "Online Desk"}.`, { userId: deskUser?.id });
@@ -356,7 +383,7 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
     const msgs: Prisma.OutboundMessageCreateManyInput[] = [];
     if (!isOoa) {
       const code = isNeeds || viaDesk ? "welcome_no_location" : "welcome_enquiry";
-      const body = renderTemplate(tpl(code).body, { name: p.first, product: productPhrase(p.products), branch: branchName ?? "nearest", rep_name: ownerName ?? "our team" });
+      const body = renderTemplate(tpl(code).body, { name: p.first, product: productPhrase(p.products.map(productName)), branch: branchName ?? "nearest", rep_name: ownerName ?? "our team" });
       const mAt = new Date(t0 + 4000);
       msgs.push({ leadId: lead.id, templateCode: code, language: "en", toPhone: p.phone, body, status: rng() < 0.7 ? "READ" : "DELIVERED", provider: "SIMULATOR", providerMessageId: `SIM-DEMO-${p.idx}`, createdAt: mAt, dedupeKey: `WELCOME:${lead.id}` });
       at(mAt, "MESSAGE_SENT", `WhatsApp "${tpl(code).name}" (EN) sent · Simulator`);
@@ -391,9 +418,13 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
         at(step(k - 0.5), "CALL", `Call: ${o.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())}`, { callOutcome: o, userId: actor });
         if (rng() < 0.75) at(step(k - 0.3), "NOTE", fillSnippet(pick(rng, NOTE_SNIPPETS), vars), { userId: actor });
         const stageName = ["NEW", "CONTACTED", "QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED", "QUOTATION_SENT", "NEGOTIATION", "TOKEN_RECEIVED", "CLOSED_WON"][k] as LeadStage | undefined;
-        if (stageName && k <= reachedIdx) at(step(k), "STAGE_CHANGE", `Stage: ${STAGE_LABEL[["NEW", "CONTACTED", "QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED", "QUOTATION_SENT", "NEGOTIATION", "TOKEN_RECEIVED"][k - 1] as LeadStage]} → ${STAGE_LABEL[stageName]}`, { userId: actor });
+        if (stageName && k <= reachedIdx) {
+          const from = stageOf(OPEN_KEYS[k - 1]);
+          const to = stageOf(stageName);
+          at(step(k), "STAGE_CHANGE", `Stage: ${from.label} → ${to.label}`, { userId: actor, meta: { fromStageId: from.id, toStageId: to.id, fromLabel: from.label, toLabel: to.label } });
+        }
       }
-      if (p.stage === "CLOSED_LOST") at(stageChangedAt, "STAGE_CHANGE", `Stage → ${stageLabel("CLOSED_LOST", p.lostReason)}`, { userId: actor });
+      if (p.stage === "CLOSED_LOST") at(stageChangedAt, "STAGE_CHANGE", `Stage → ${stageOf(stageKey(p.stage, p.lostReason)).label}`, { userId: actor });
     }
     await prisma.activity.createMany({ data: acts });
     if (msgs.length) await prisma.outboundMessage.createMany({ data: msgs });
@@ -409,7 +440,7 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
     if (p.stage === "CLOSED_WON" && branchId) {
       await prisma.deal.create({
         data: {
-          title: `${p.products.map((x) => x.charAt(0) + x.slice(1).toLowerCase()).join(" + ")} — ${p.first} ${p.last} (${refCode})`,
+          title: `${p.products.map(productName).join(" + ")} — ${p.first} ${p.last} (${refCode})`,
           amount: (order ?? 0) * 100,
           stage: "WON",
           closeDate: stageChangedAt,
@@ -447,11 +478,14 @@ export async function generateDemoHistory(opts: { now?: Date; log?: (s: string) 
   await shapeLiveState(rng, now, wh, owner.id, log);
 }
 
+type LiveLead = Prisma.LeadGetPayload<{ include: { owner: { select: { email: true } }; stage: { select: { systemKey: true } }; products: { select: { name: true } } } }>;
+const keyOf = (l: Pick<LiveLead, "stage">) => l.stage.systemKey;
+
 /** Tasks, appointments and messages that make the demo look alive "today". */
 async function shapeLiveState(rng: Rng, now: Date, wh: Parameters<typeof addWorkingMinutes>[2], ownerId: string, log: (s: string) => void) {
-  const open = await prisma.lead.findMany({
-    where: { stage: { notIn: ["CLOSED_WON", "CLOSED_LOST"] }, ownerId: { not: null } },
-    include: { owner: { select: { email: true, role: true } } },
+  const open: LiveLead[] = await prisma.lead.findMany({
+    where: { stage: { category: "OPEN" }, ownerId: { not: null } },
+    include: { owner: { select: { email: true } }, stage: { select: { systemKey: true } }, products: { select: { name: true }, orderBy: { sortOrder: "asc" } } },
     orderBy: { createdAt: "asc" },
   });
   const tasks: Prisma.TaskCreateManyInput[] = [];
@@ -459,7 +493,7 @@ async function shapeLiveState(rng: Rng, now: Date, wh: Parameters<typeof addWork
   const ageH = (l: { createdAt: Date }) => (now.getTime() - l.createdAt.getTime()) / 3600_000;
 
   // NEW leads: first-call tasks; the ones older than the SLA show as breached today
-  const fresh = open.filter((l) => l.stage === "NEW" && l.locationStatus === "RESOLVED");
+  const fresh = open.filter((l) => keyOf(l) === "NEW" && l.locationStatus === "RESOLVED");
   for (const l of fresh) {
     tasks.push({ leadId: l.id, assigneeId: l.ownerId!, type: "FIRST_CALL", title: `First call: ${l.firstName} ${l.lastName ?? ""}`.trim(), dueAt: addWorkingMinutes(l.createdAt, 60, wh), createdAt: l.createdAt });
   }
@@ -468,13 +502,13 @@ async function shapeLiveState(rng: Rng, now: Date, wh: Parameters<typeof addWork
     tasks.push({ leadId: l.id, assigneeId: l.ownerId!, type: "CAPTURE_LOCATION", title: `Call ${l.firstName} to get the site area / pincode`, dueAt: addWorkingMinutes(l.createdAt, 60, wh), createdAt: l.createdAt });
   }
   // Follow-ups: ~10 overdue spread across reps (Arjun most), ~12 today, ~25 upcoming
-  const worked = open.filter((l) => l.stage !== "NEW" && l.locationStatus === "RESOLVED" && ageH(l) > 24);
+  const worked = open.filter((l) => keyOf(l) !== "NEW" && l.locationStatus === "RESOLVED" && ageH(l) > 24);
   const quotas: Record<string, number> = { "arjun@elementra.test": 4, "meera@elementra.test": 2, "ishita@elementra.test": 1, "rohan@elementra.test": 1, "dev@elementra.test": 1, "omkar@elementra.test": 1 };
   const overdue: typeof worked = [];
   for (const [email, n] of Object.entries(quotas)) overdue.push(...worked.filter((l) => l.owner?.email === email).slice(0, n));
   for (const l of overdue) {
     const due = new Date(now.getTime() - intBetween(rng, 3, 70) * 3600_000);
-    tasks.push({ leadId: l.id, assigneeId: l.ownerId!, type: l.stage === "QUOTATION_SENT" ? "QUOTATION_FOLLOW_UP" : "FOLLOW_UP", title: `Follow up with ${l.firstName}`, dueAt: due, createdAt: new Date(due.getTime() - 2 * DAY) });
+    tasks.push({ leadId: l.id, assigneeId: l.ownerId!, type: keyOf(l) === "QUOTATION_SENT" ? "QUOTATION_FOLLOW_UP" : "FOLLOW_UP", title: `Follow up with ${l.firstName}`, dueAt: due, createdAt: new Date(due.getTime() - 2 * DAY) });
   }
   const rest = worked.filter((l) => !overdue.includes(l));
   const shuffled = rest.map((l) => ({ l, r: rng() })).sort((a, b) => a.r - b.r).map((x) => x.l);
@@ -485,7 +519,7 @@ async function shapeLiveState(rng: Rng, now: Date, wh: Parameters<typeof addWork
     tasks.push({ leadId: l.id, assigneeId: l.ownerId!, type: "FOLLOW_UP", title: pick(rng, [`Call ${l.firstName} back`, `Share ballpark with ${l.firstName}`, `Confirm floor plan with ${l.firstName}`, `Follow up with ${l.firstName}`]), dueAt: due, createdAt: new Date(now.getTime() - DAY) });
   }
   for (const l of shuffled.slice(12, 37)) {
-    tasks.push({ leadId: l.id, assigneeId: l.ownerId!, type: l.stage === "QUOTATION_SENT" ? "QUOTATION_FOLLOW_UP" : "FOLLOW_UP", title: `Follow up with ${l.firstName}`, dueAt: wallTime(now, `${intBetween(rng, 11, 18)}:00`, "Asia/Kolkata", intBetween(rng, 1, 7)), createdAt: new Date(now.getTime() - DAY) });
+    tasks.push({ leadId: l.id, assigneeId: l.ownerId!, type: keyOf(l) === "QUOTATION_SENT" ? "QUOTATION_FOLLOW_UP" : "FOLLOW_UP", title: `Follow up with ${l.firstName}`, dueAt: wallTime(now, `${intBetween(rng, 11, 18)}:00`, "Asia/Kolkata", intBetween(rng, 1, 7)), createdAt: new Date(now.getTime() - DAY) });
   }
   // Everyone else has a nurture follow-up further out (long possession cycles) — except a handful the
   // stale-stage rule (R3) will pick up on the first engine run
@@ -499,11 +533,11 @@ async function shapeLiveState(rng: Rng, now: Date, wh: Parameters<typeof addWork
   }
 
   // Out-of-area leads waiting in the queue get review tasks for the owner
-  const ooa = await prisma.lead.findMany({ where: { locationStatus: "OUT_OF_AREA", stage: { notIn: ["CLOSED_WON", "CLOSED_LOST"] } } });
+  const ooa = await prisma.lead.findMany({ where: { locationStatus: "OUT_OF_AREA", stage: { category: "OPEN" } } });
   await prisma.task.createMany({ data: ooa.map((l) => ({ leadId: l.id, assigneeId: ownerId, type: "OUT_OF_AREA_REVIEW" as const, title: `Out of area: ${l.firstName} — accept or regret`, dueAt: addWorkingMinutes(l.createdAt, 240, wh), createdAt: l.createdAt })) });
 
   // ~6 visits in the next 3 days, one tomorrow 11:00 at Worli
-  const candidates = open.filter((l) => ["QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED"].includes(l.stage) && l.branchId && l.locationStatus === "RESOLVED");
+  const candidates = open.filter((l) => ["QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED"].includes(keyOf(l) ?? "") && l.branchId && l.locationStatus === "RESOLVED");
   const worliBranch = await prisma.branch.findUnique({ where: { code: "WOR" } });
   const worliLead = candidates.find((l) => l.branchId === worliBranch?.id);
   const slots: [number, string][] = [[1, "11:00"], [0, "17:30"], [1, "15:00"], [2, "12:00"], [2, "16:30"], [3, "11:30"]];
@@ -521,7 +555,7 @@ async function shapeLiveState(rng: Rng, now: Date, wh: Parameters<typeof addWork
   if (nudge) {
     for (const l of shuffled.slice(37, 45)) {
       const at = new Date(now.getTime() - intBetween(rng, 2, 140) * 3600_000);
-      await prisma.outboundMessage.create({ data: { leadId: l.id, templateCode: "follow_up_nudge", language: "en", toPhone: l.phoneE164!, body: renderTemplate(nudge.body, { name: l.firstName, product: productPhrase(l.products), branch: "our" }), status: rng() < 0.6 ? "READ" : "DELIVERED", provider: "SIMULATOR", sentById: l.ownerId, createdAt: at } });
+      await prisma.outboundMessage.create({ data: { leadId: l.id, templateCode: "follow_up_nudge", language: "en", toPhone: l.phoneE164!, body: renderTemplate(nudge.body, { name: l.firstName, product: productPhrase(l.products.map((x) => x.name)), branch: "our" }), status: rng() < 0.6 ? "READ" : "DELIVERED", provider: "SIMULATOR", sentById: l.ownerId, createdAt: at } });
     }
   }
   log(`Tasks: ${tasks.length + ooa.length} · Visits booked: ${picks.length}`);

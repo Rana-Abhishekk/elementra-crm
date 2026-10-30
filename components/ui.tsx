@@ -44,10 +44,11 @@ export function CardHeader({ title, action, className }: { title: React.ReactNod
   );
 }
 
-export function Chip({ className, children, title }: { className?: string; children: React.ReactNode; title?: string }) {
+export function Chip({ className, children, title, style }: { className?: string; children: React.ReactNode; title?: string; style?: React.CSSProperties }) {
   return (
     <span
       title={title}
+      style={style}
       className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ring-1 ring-inset", className ?? "bg-slate-100 text-slate-700 ring-slate-200")}
     >
       {children}

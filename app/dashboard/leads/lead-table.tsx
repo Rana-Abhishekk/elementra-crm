@@ -8,7 +8,6 @@ import { Inbox, MessageCircle, Phone, RotateCcw, Users } from "lucide-react";
 import type { LeadListItem } from "@/lib/data/leads";
 import { EmptyState, Chip } from "@/components/ui";
 import { FollowUpBadge, PriorityChip, SourceBadge, StageBadge } from "@/components/lead-badges";
-import { PRODUCT_LABEL } from "@/lib/domain/labels";
 import { formatLakh } from "@/lib/domain/money";
 import { formatPhone, waLink } from "@/lib/domain/phone";
 import { relativeTime, wallTime } from "@/lib/domain/time";
@@ -22,11 +21,14 @@ const branchName = (l: Row) => (l.branch ? (l.branch.kind === "ONLINE_DESK" ? "O
 
 export function LeadTable({
   rows,
+  canBulk,
   canBulkReassign,
   people,
   emptyHint,
 }: {
   rows: Row[];
+  /** leads.bulk — selection + bulk follow-up */
+  canBulk: boolean;
   canBulkReassign: boolean;
   people: { id: string; name: string; branch: string; onLeave: boolean }[];
   emptyHint: string;
@@ -89,9 +91,11 @@ export function LeadTable({
               </button>
             </>
           )}
-          <button disabled={pending} onClick={() => bulk("followup")} className="rounded-md bg-white/10 px-3 py-1 hover:bg-white/20">
-            Follow up tomorrow 11 AM
-          </button>
+          {canBulk && (
+            <button disabled={pending} onClick={() => bulk("followup")} className="rounded-md bg-white/10 px-3 py-1 hover:bg-white/20">
+              Follow up tomorrow 11 AM
+            </button>
+          )}
           <button onClick={() => setSelected(new Set())} className="ml-auto inline-flex items-center gap-1 text-white/70 hover:text-white">
             <RotateCcw className="size-3.5" /> Clear
           </button>
@@ -104,7 +108,7 @@ export function LeadTable({
           <thead className="bg-slate-50 text-xs text-slate-500">
             <tr>
               <th className="w-8 p-3">
-                <input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))} aria-label="Select all" />
+                {canBulk && <input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))} aria-label="Select all" />}
               </th>
               <th className="p-3">Lead</th>
               <th className="p-3">Area</th>
@@ -120,7 +124,7 @@ export function LeadTable({
             {rows.map((l) => (
               <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50/60">
                 <td className="p-3">
-                  <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggle(l.id)} aria-label={`Select ${l.refCode}`} />
+                  {canBulk && <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggle(l.id)} aria-label={`Select ${l.refCode}`} />}
                 </td>
                 <td className="p-3">
                   <Link href={`/dashboard/leads/${l.id}`} className="font-medium text-ink hover:underline">
@@ -139,13 +143,13 @@ export function LeadTable({
                   <div className="text-xs text-slate-500">{l.owner?.name ?? "Unassigned"}</div>
                 </td>
                 <td className="p-3">
-                  <StageBadge stage={l.stage} lostReason={l.lostReason} />
+                  <StageBadge stage={l.stage} />
                   {l.priority === "HOT" && <span className="ml-1"><PriorityChip priority="HOT" /></span>}
                 </td>
                 <td className="p-3">
                   <div className="flex flex-wrap gap-1">
                     {l.products.map((p) => (
-                      <Chip key={p}>{PRODUCT_LABEL[p]}</Chip>
+                      <Chip key={p.id} className={p.isActive ? undefined : "bg-slate-50 text-slate-400 ring-slate-200"}>{p.name}</Chip>
                     ))}
                   </div>
                 </td>
@@ -165,7 +169,7 @@ export function LeadTable({
         {rows.map((l) => (
           <div key={l.id} className="card p-4">
             <div className="flex items-start gap-3">
-              <input type="checkbox" className="mt-1" checked={selected.has(l.id)} onChange={() => toggle(l.id)} aria-label={`Select ${l.refCode}`} />
+              {canBulk && <input type="checkbox" className="mt-1" checked={selected.has(l.id)} onChange={() => toggle(l.id)} aria-label={`Select ${l.refCode}`} />}
               <Link href={`/dashboard/leads/${l.id}`} className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <SourceBadge source={l.source} />
@@ -178,7 +182,7 @@ export function LeadTable({
                   {area(l)} · {branchName(l)} · {l.owner?.name ?? "Unassigned"}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <StageBadge stage={l.stage} lostReason={l.lostReason} />
+                  <StageBadge stage={l.stage} />
                   <FollowUpBadge at={l.nextFollowUpAt} open={l.open} slaBreached={l.slaBreached} now={now} />
                 </div>
               </Link>

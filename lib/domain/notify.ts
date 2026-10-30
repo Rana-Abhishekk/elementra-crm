@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { superAdminIds } from "@/lib/auth/scope";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -21,9 +22,7 @@ export async function notify(items: NotificationInput | NotificationInput[], db:
   return res.count;
 }
 
+/** Business owners (Super Admin role) get queue alerts and owner copies. */
 export async function ownerIds(db: Db = prisma): Promise<string[]> {
-  const owners = await db.user.findMany({ where: { role: "OWNER", isActive: true }, select: { id: true } });
-  if (owners.length) return owners.map((o) => o.id);
-  const admins = await db.user.findMany({ where: { role: "ADMIN", isActive: true }, select: { id: true } });
-  return admins.map((a) => a.id);
+  return superAdminIds(db);
 }

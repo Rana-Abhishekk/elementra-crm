@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { isManager } from "@/lib/access";
+import { canSeeUser } from "@/lib/auth/scope";
 import { recomputeNextFollowUp } from "@/lib/domain/leads/workflow";
 import { friendlyIST } from "@/lib/domain/time";
 import { TASK_TYPE_LABEL } from "@/lib/domain/labels";
@@ -13,8 +13,9 @@ type Result = { ok: true; message?: string } | { ok: false; error: string };
 
 async function ownTask(taskId: string) {
   const user = await requireUser();
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
-  if (!task || (task.assigneeId !== user.id && !isManager(user))) throw new Error("Task not found");
+  const task = await prisma.task.findUnique({ where: { id: taskId }, include: { assignee: { select: { id: true, branchId: true } } } });
+  // Your own tasks, or (managers) tasks of people in your scope
+  if (!task || (task.assigneeId !== user.id && (user.scope === "OWN" || !canSeeUser(user, task.assignee)))) throw new Error("Task not found");
   return { user, task };
 }
 

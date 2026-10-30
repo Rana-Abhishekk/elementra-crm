@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { mapMetaCsvRow, stripPrefix } from "./metaCsv";
 import { mapMetaLead, mapProducts, metaSource } from "./metaLead";
+import { PRODUCTS, SOURCES } from "@/lib/domain/masters/defaults";
+import { resolveProducts, resolveSource } from "@/lib/domain/masters/resolve";
+
+const sourceRefs = SOURCES.map((s) => ({ ...s, isActive: true, isPaid: !!s.isPaid, isFallback: !!s.isFallback }));
+const productRefs = PRODUCTS.map((p) => ({ ...p, isActive: true }));
+const sourceName = (v: string) => resolveSource(sourceRefs, v).source?.name;
+const productNames = (tokens: string[]) => {
+  const r = resolveProducts(productRefs, tokens);
+  return { names: r.ids.map((id) => productRefs.find((p) => p.id === id)!.name), unmatched: r.unmatched };
+};
 
 describe("Meta CSV import", () => {
   it("strips Meta's id and phone prefixes", () => {
@@ -36,9 +46,9 @@ describe("Meta CSV import", () => {
       lastName: "Iyer Shah",
       phone: "+919000000301",
       externalId: "900100",
-      source: "INSTAGRAM_PAID",
+      source: "meta:ig:paid",
       channel: "CSV_IMPORT",
-      products: ["KITCHEN"],
+      products: ["elementra_kitchens"],
       priority: "HOT",
       siteAddress: "Worli",
     });
@@ -46,16 +56,20 @@ describe("Meta CSV import", () => {
     expect((input.rawPayload as { _unmapped: Record<string, string> })._unmapped).toEqual({ site_area: "Worli", some_new_question: "yes" });
   });
 
-  it("maps platform + organic flag to the client's sources", () => {
-    expect(metaSource("fb", false)).toBe("FACEBOOK");
-    expect(metaSource("ig", "true")).toBe("INSTAGRAM_ORGANIC");
-    expect(metaSource("ig", false)).toBe("INSTAGRAM_PAID");
+  it("maps platform + organic flag to the client's sources (via the Source master's keys)", () => {
+    expect(metaSource("fb", false)).toBe("meta:fb:paid");
+    expect(metaSource("ig", "true")).toBe("meta:ig:organic");
+    expect(metaSource("ig", false)).toBe("meta:ig:paid");
+    expect(sourceName(metaSource("fb", false))).toBe("Facebook");
+    expect(sourceName(metaSource("ig", "true"))).toBe("Instagram (Organic)");
+    expect(sourceName(metaSource("ig", false))).toBe("Instagram (Paid)");
   });
 
-  it("maps product answers and sheet-style lists", () => {
-    expect(mapProducts("elementra_wardrobes")).toEqual(["WARDROBES"]);
-    expect(mapProducts("Kitchen, Wardrobes, Furniture")).toEqual(["KITCHEN", "WARDROBES", "FURNITURE"]);
-    expect(mapProducts("something else")).toEqual(["OTHERS"]);
+  it("maps product answers and sheet-style lists (via the Product master)", () => {
+    expect(productNames(mapProducts("elementra_wardrobes"))).toEqual({ names: ["Wardrobes"], unmatched: [] });
+    expect(productNames(mapProducts("Kitchen, Wardrobes, Furniture"))).toEqual({ names: ["Kitchen", "Wardrobes", "Furniture"], unmatched: [] });
+    expect(productNames(mapProducts("elementra_kitchen|beds"))).toEqual({ names: ["Kitchen", "Beds"], unmatched: [] });
+    expect(productNames(mapProducts("something else"))).toEqual({ names: [], unmatched: ["something else"] });
   });
 });
 
@@ -75,14 +89,14 @@ describe("Meta webhook lead", () => {
         { name: "possession_timeline", values: ["within_3_months"] },
       ],
     });
-    expect(input).toMatchObject({ firstName: "Rhea", lastName: "Kapoor", pincode: "400018", source: "INSTAGRAM_PAID", channel: "META_LEAD_AD", externalId: "SIM-1761630000-001" });
+    expect(input).toMatchObject({ firstName: "Rhea", lastName: "Kapoor", pincode: "400018", source: "meta:ig:paid", channel: "META_LEAD_AD", externalId: "SIM-1761630000-001" });
     expect((input.receivedAt as Date).toISOString()).toBe("2026-10-28T06:42:11.000Z");
     expect(input.possessionDate).toBeInstanceOf(Date);
   });
 
   it("works without location questions (the client's current form)", () => {
     const input = mapMetaLead({ id: "x", platform: "fb", field_data: [{ name: "full_name", values: ["Aditya Shah"] }] });
-    expect(input).toMatchObject({ pincode: null, siteAddress: null, source: "FACEBOOK" });
+    expect(input).toMatchObject({ pincode: null, siteAddress: null, source: "meta:fb:paid" });
   });
 });
 
@@ -103,13 +117,16 @@ import { mapSheetRow, mapSheetSource } from "./sheets";
 
 describe("Google Sheet row mapper", () => {
   it("maps the client's source values, typo included", () => {
-    expect(mapSheetSource("Instagram Paid Media Paid Media")).toBe("INSTAGRAM_PAID");
-    expect(mapSheetSource("Walkins")).toBe("WALK_IN");
-    expect(mapSheetSource("Repeat purchase")).toBe("REPEAT_PURCHASE");
+    expect(sourceName(mapSheetSource("Instagram Paid Media Paid Media"))).toBe("Instagram (Paid)");
+    expect(sourceName(mapSheetSource("Walkins"))).toBe("Walk-in");
+    expect(sourceName(mapSheetSource("Repeat purchase"))).toBe("Repeat purchase");
+    expect(sourceName(mapSheetSource("Exhibition"))).toBe("Other"); // unmapped → fallback source
   });
 
   it("maps a Sales Pipeline row", () => {
     const r = mapSheetRow({ "First Name": "Ira", "Last Name": "Sawant", Phone: "9000060010", "Site Address": "Goregoan east", "Product/Solution": "Kitchen, Wardrobes", Source: "Whatsapp", Status: "12.Closed Lost - No response" });
-    expect(r).toMatchObject({ firstName: "Ira", channel: "GOOGLE_SHEET", source: "WHATSAPP", products: ["KITCHEN", "WARDROBES"], legacyStatus: { stage: "CLOSED_LOST", lostReason: "NO_RESPONSE" } });
+    expect(r).toMatchObject({ firstName: "Ira", channel: "GOOGLE_SHEET", source: "sheet:Whatsapp", legacyStatus: "12.Closed Lost - No response" });
+    expect(sourceName(r.source as string)).toBe("WhatsApp");
+    expect(productNames(r.products as string[]).names).toEqual(["Kitchen", "Wardrobes"]);
   });
 });

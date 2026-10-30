@@ -3,37 +3,11 @@ import type {
   CallOutcome,
   GeoMethod,
   IntakeChannel,
-  LeadSource,
   Priority,
-  Product,
   ProjectStage,
-  Role,
   RoutingRule,
   TaskType,
 } from "@prisma/client";
-
-export const ROLE_LABEL: Record<Role, string> = {
-  OWNER: "Owner",
-  ADMIN: "Admin",
-  SALES_MANAGER: "Sales manager",
-  PRESALES: "Online Desk",
-  SALES_REP: "Sales rep",
-};
-
-export const SOURCE_LABEL: Record<LeadSource, string> = {
-  INSTAGRAM_PAID: "Instagram (Paid)",
-  INSTAGRAM_ORGANIC: "Instagram (Organic)",
-  FACEBOOK: "Facebook",
-  GOOGLE: "Google",
-  WHATSAPP: "WhatsApp",
-  LINKEDIN: "LinkedIn",
-  REFERENCE: "Reference / Architect",
-  REPEAT_PURCHASE: "Repeat purchase",
-  WALK_IN: "Walk-in",
-  CALL: "Phone call",
-  WEBSITE: "Website",
-};
-export const SOURCES = Object.keys(SOURCE_LABEL) as LeadSource[];
 
 export const CHANNEL_LABEL: Record<IntakeChannel, string> = {
   META_LEAD_AD: "Meta lead ad",
@@ -43,16 +17,6 @@ export const CHANNEL_LABEL: Record<IntakeChannel, string> = {
   CSV_IMPORT: "CSV import",
   MANUAL: "Manual entry",
 };
-
-export const PRODUCT_LABEL: Record<Product, string> = {
-  KITCHEN: "Kitchen",
-  WARDROBES: "Wardrobes",
-  FURNITURE: "Furniture",
-  APPLIANCES: "Appliances",
-  BEDS: "Beds",
-  OTHERS: "Others",
-};
-export const PRODUCTS = Object.keys(PRODUCT_LABEL) as Product[];
 
 export const PRIORITY_LABEL: Record<Priority, string> = { HOT: "Hot", WARM: "Warm", COLD: "Cold" };
 export const PRIORITY_COLOR: Record<Priority, string> = {
@@ -132,9 +96,3 @@ export const PROJECT_STAGE_LABEL: Record<ProjectStage, string> = {
 };
 export const PROJECT_STAGES = Object.keys(PROJECT_STAGE_LABEL) as ProjectStage[];
 
-/** "Kitchen and wardrobes" style, for templates ({{product}}) */
-export function productPhrase(products: Product[]): string {
-  const names = (products.length ? products : ["KITCHEN" as Product]).map((p) => PRODUCT_LABEL[p].toLowerCase());
-  if (names.length === 1) return names[0];
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}

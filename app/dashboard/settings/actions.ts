@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { AssignmentStrategy, TemplateStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/access";
+import { isDemoMode, requirePermission } from "@/lib/auth";
 import { getSettings, setSetting } from "@/lib/data/settings";
 import { writeAudit } from "@/lib/domain/audit";
 import type { Settings, SettingsKey } from "@/lib/domain/settings";
@@ -16,8 +16,8 @@ const fail = (e: unknown): Result => ({ ok: false, error: e instanceof z.ZodErro
 /** Saves one settings section (merged over the current value) and audits the change. */
 export async function saveSettingsAction<K extends SettingsKey>(key: K, patch: Partial<Settings[K]>): Promise<Result> {
   try {
-    const user = await requireRole("OWNER", "ADMIN", "SALES_MANAGER");
-    if (user.role === "SALES_MANAGER" && key !== "reminders") return { ok: false, error: "Only the owner or admin can change this." };
+    // Reminder thresholds belong to Automations; everything else is Settings
+    const user = await requirePermission(...(key === "reminders" ? (["automations.manage", "settings.manage"] as const) : (["settings.manage"] as const)));
     const current = await getSettings();
     const next = settingsSchema.shape[key].parse({ ...(current[key] as object), ...(patch as object) }) as Settings[K];
     await setSetting(key, next, user.id);
@@ -36,7 +36,7 @@ const branchSchema = z.object({ serviceRadiusKm: z.coerce.number().min(1).max(20
 
 export async function saveBranchAction(branchId: string, input: z.input<typeof branchSchema>): Promise<Result> {
   try {
-    const user = await requireRole("OWNER", "ADMIN");
+    const user = await requirePermission("branches.manage");
     const d = branchSchema.parse(input);
     const b = await prisma.branch.update({ where: { id: branchId }, data: d });
     await writeAudit({ actorId: user.id, action: "branch.updated", entityType: "Branch", entityId: branchId, summary: `${b.name}: radius ${d.serviceRadiusKm} km, ${d.assignmentStrategy === "ROUND_ROBIN" ? "round-robin" : "fewest open leads"}` });
@@ -49,7 +49,7 @@ export async function saveBranchAction(branchId: string, input: z.input<typeof b
 
 export async function addPincodeRuleAction(pincode: string, branchId: string, label: string): Promise<Result> {
   try {
-    const user = await requireRole("OWNER", "ADMIN");
+    const user = await requirePermission("branches.manage");
     const pin = z.string().regex(/^[1-9]\d{5}$/, "A pincode has 6 digits").parse(pincode.trim());
     if (await prisma.branchPincode.findUnique({ where: { pincode: pin } })) return { ok: false, error: `${pin} already has a rule` };
     const b = await prisma.branch.findUniqueOrThrow({ where: { id: branchId } });
@@ -64,7 +64,7 @@ export async function addPincodeRuleAction(pincode: string, branchId: string, la
 
 export async function removePincodeRuleAction(id: string): Promise<Result> {
   try {
-    const user = await requireRole("OWNER", "ADMIN");
+    const user = await requirePermission("branches.manage");
     const r = await prisma.branchPincode.delete({ where: { id } });
     await writeAudit({ actorId: user.id, action: "routing.rule_removed", entityType: "BranchPincode", entityId: r.pincode, summary: `Pincode rule ${r.pincode} removed` });
     revalidatePath("/dashboard/settings");
@@ -76,7 +76,7 @@ export async function removePincodeRuleAction(id: string): Promise<Result> {
 
 export async function saveTemplateAction(id: string, body: string, status: TemplateStatus): Promise<Result> {
   try {
-    const user = await requireRole("OWNER", "ADMIN");
+    const user = await requirePermission("templates.manage");
     const text = z.string().trim().min(5).max(1024).parse(body);
     const variables = [...new Set([...text.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]))];
     const t = await prisma.messageTemplate.update({ where: { id }, data: { body: text, variables, status: z.enum(TemplateStatus).parse(status) } });
@@ -91,8 +91,7 @@ export async function saveTemplateAction(id: string, body: string, status: Templ
 /** Integrations → "Send test webhook": checks the verify token and pushes one simulated lead through the webhook processor. */
 export async function testMetaWebhookAction(): Promise<Result> {
   try {
-    await requireRole("OWNER", "ADMIN");
-    const { isDemoMode } = await import("@/lib/access");
+    await requirePermission("integrations.manage");
     if (!process.env.META_VERIFY_TOKEN) return { ok: false, error: "META_VERIFY_TOKEN is not set" };
     if (!isDemoMode()) return { ok: true, message: "Verify token is set — Meta's handshake will succeed." };
     const { processLeadgenPayload, simulatedEnvelope } = await import("@/lib/domain/integrations/metaWebhook");

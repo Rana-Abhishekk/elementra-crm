@@ -1,11 +1,12 @@
 // pickAssignee(): who inside the branch gets the lead (spec §8.4). Pure.
-import type { AssignmentStrategy, Role } from "@prisma/client";
+import type { AssignmentStrategy } from "@prisma/client";
 import { formatISTDate } from "@/lib/domain/time";
 
 export interface Member {
   id: string;
   name: string;
-  role: Role;
+  /** Holds a BRANCH-scope role for this branch (fallback when nobody else is available). */
+  isManager: boolean;
   isActive: boolean;
   receivesLeads: boolean;
   onLeave: boolean;
@@ -52,7 +53,7 @@ export function pickAssignee(branchName: string, strategy: AssignmentStrategy, m
   const skippedLine = skipped.length ? [`Skipped: ${skipped.map((s) => `${s.name} (${s.reason})`).join(", ")}.`] : [];
 
   if (!eligible.length) {
-    const manager = members.find((m) => m.role === "SALES_MANAGER" && m.isActive && !isOnLeave(m, now));
+    const manager = members.find((m) => m.isManager && m.isActive && !isOnLeave(m, now));
     if (manager) {
       return {
         userId: manager.id,

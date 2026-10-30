@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Building2, CalendarClock, HardHat, Handshake, Link2, MessageCircle, Phone } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
-import { canEditLead, isManager } from "@/lib/access";
+import { can, requireUser } from "@/lib/auth";
+import { canEditLead } from "@/lib/auth/scope";
+import { getMasters } from "@/lib/data/masters";
 import { assignableUsers, getLeadForUser } from "@/lib/data/leads";
 import { progressSimulatedMessages } from "@/lib/data/messages";
 import { getSettings } from "@/lib/data/settings";
@@ -15,7 +16,7 @@ import { CHANNEL_LABEL, PROJECT_STAGE_LABEL, TASK_TYPE_LABEL } from "@/lib/domai
 import { formatLakh } from "@/lib/domain/money";
 import { formatPhone, waLink } from "@/lib/domain/phone";
 import { formatIST, friendlyIST } from "@/lib/domain/time";
-import { isOpenStage } from "@/lib/domain/stages";
+import { isOpen, pipelineStages } from "@/lib/domain/stages";
 import { shortBranch } from "@/lib/domain/routing/decide";
 import { formatMoney } from "@/lib/format";
 import type { RoutingCardData } from "@/components/routing-card";
@@ -29,22 +30,25 @@ import { ReassignControl } from "./reassign-control";
 export default async function LeadPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const user = await requireUser();
+  // Outside the user's scope → 404, same as a lead that doesn't exist (06 §5.3)
+  if (!(await getLeadForUser(user, id))) notFound();
   await progressSimulatedMessages({ leadId: id });
-  const lead = await getLeadForUser(user, id);
-  if (!lead) notFound();
+  const lead = (await getLeadForUser(user, id))!;
 
-  const [settings, templates, branches, people, architects, messages] = await Promise.all([
+  const [settings, masters, templates, branches, people, architects, messages] = await Promise.all([
     getSettings(),
+    getMasters(),
     prisma.messageTemplate.findMany({ orderBy: [{ code: "asc" }, { language: "asc" }], select: { code: true, language: true, name: true, status: true, body: true } }),
     prisma.branch.findMany({ where: { kind: "EXPERIENCE_CENTRE", isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    assignableUsers(),
+    assignableUsers(user),
     prisma.contact.findMany({ where: { kind: "ARCHITECT" }, select: { id: true, firstName: true, lastName: true, company: { select: { name: true } } }, orderBy: { firstName: "asc" } }),
     prisma.outboundMessage.findMany({ where: { leadId: id }, select: { id: true, status: true, body: true, direction: true } }),
   ]);
 
   const editable = canEditLead(user, lead);
-  const manager = isManager(user);
-  const open = isOpenStage(lead.stage);
+  const canMove = editable && can(user, "pipeline.move");
+  const open = isOpen(lead.stage);
+  const stages = pipelineStages(masters.stages, lead.pipelineId, { includeInactive: true }).filter((s) => s.isActive || s.id === lead.stageId);
   const now = new Date();
   const name = `${lead.salutation ? `${lead.salutation}. ` : ""}${lead.firstName} ${lead.lastName ?? ""}`.trim();
   const branchLabel = lead.branch ? (lead.branch.kind === "ONLINE_DESK" ? "Online Desk" : shortBranch(lead.branch.name)) : null;
@@ -60,8 +64,10 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
       }
     : null;
   const sla = isSlaBreached(lead, settings.sla.firstContactMins, settings.workingHours, now);
+  const pipelines = masters.pipelines.filter((p) => p.isActive || p.id === lead.pipelineId).map((p) => ({ id: p.id, name: p.name }));
   const waText = `Hi ${lead.firstName}, this is ${user.name ?? "Elementra"} from Elementra.`;
-  const hosts = people.filter((p) => p.role !== "PRESALES").map((p) => ({ id: p.id, name: p.name, branchId: p.branch?.id ?? null }));
+  // Showroom visit hosts: people in an Experience Centre (the Online Desk doesn't host visits)
+  const hosts = people.filter((p) => branches.some((b) => b.id === p.branch?.id)).map((p) => ({ id: p.id, name: p.name, branchId: p.branch?.id ?? null }));
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -92,7 +98,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
                 {branchLabel ?? (lead.locationStatus === "OUT_OF_AREA" ? "Out of area (queue)" : "No branch")}
               </span>
               <span className="text-slate-300">|</span>
-              {manager ? (
+              {can(user, "leads.reassign") ? (
                 <ReassignControl leadId={lead.id} ownerId={lead.ownerId} people={people.map((p) => ({ id: p.id, name: p.name, branch: p.branch ? shortBranch(p.branch.name) : "", onLeave: p.onLeave }))} />
               ) : (
                 <span className="text-slate-600">Owner: {lead.owner?.name ?? "Unassigned"}</span>
@@ -101,7 +107,17 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
           <div className="flex flex-col gap-3 lg:items-end">
-            <StageControl leadId={lead.id} stage={lead.stage} lostReason={lead.lostReason} editable={editable} canReopen={manager} possessionDate={lead.possessionDate} orderValue={lead.orderValueInr ?? lead.estimatedValueInr} />
+            <StageControl
+              leadId={lead.id}
+              stageId={lead.stageId}
+              stages={stages}
+              pipelineId={lead.pipelineId}
+              pipelines={pipelines}
+              editable={canMove}
+              canReopen={can(user, "pipeline.reopen")}
+              possessionDate={lead.possessionDate}
+              orderValue={lead.orderValueInr ?? lead.estimatedValueInr}
+            />
             {lead.phoneE164 && (
               <div className="grid grid-cols-2 gap-2 sm:flex">
                 <a href={`tel:${lead.phoneE164}`} className="btn-secondary py-2.5">
@@ -119,7 +135,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
             <Link2 className="size-4" />
             {lead.duplicateOf && (
               <span>
-                {settings.duplicates.policy === "WARN_ONLY" && isOpenStage(lead.duplicateOf.stage) ? "Possible duplicate of " : "Earlier enquiry: "}
+                Earlier enquiry ({lead.duplicateOf.stage.label}):{" "}
                 <Link className="font-medium underline" href={`/dashboard/leads/${lead.duplicateOf.id}`}>
                   {lead.duplicateOf.refCode}
                 </Link>{" "}
@@ -240,7 +256,8 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
               siteAddressRaw: lead.siteAddressRaw,
               pincode: lead.pincode,
               localityLabel: lead.locality ? `${lead.locality.name}, ${lead.locality.city}` : null,
-              products: lead.products,
+              products: lead.products.map((p) => p.id),
+              sourceId: lead.sourceId,
               priority: lead.priority,
               language: lead.language,
               possessionDate: lead.possessionDate,
@@ -257,6 +274,8 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
               contactId: lead.contactId,
             }}
             architects={architects.map((a) => ({ id: a.id, label: `${a.firstName} ${a.lastName ?? ""} · ${a.company?.name ?? ""}` }))}
+            products={masters.products.filter((p) => p.isActive || lead.products.some((x) => x.id === p.id)).map((p) => ({ id: p.id, name: p.name, isActive: p.isActive }))}
+            sources={masters.sources.filter((x) => x.isActive || x.id === lead.sourceId).map((x) => ({ id: x.id, name: x.name, isActive: x.isActive }))}
             valueLabel={formatLakh(lead.orderValueInr ?? lead.estimatedValueInr)}
           />
         </div>

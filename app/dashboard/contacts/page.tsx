@@ -27,7 +27,7 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
         company: { select: { name: true } },
         owner: { select: { name: true } },
         _count: { select: { leads: true, influencedLeads: true } },
-        influencedLeads: { where: { stage: "CLOSED_WON" }, select: { orderValueInr: true } },
+        influencedLeads: { where: { stage: { category: "WON" } }, select: { orderValueInr: true } },
       },
     }),
     prisma.company.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),

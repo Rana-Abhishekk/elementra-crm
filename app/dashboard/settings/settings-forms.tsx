@@ -7,7 +7,6 @@ import type { AssignmentStrategy } from "@prisma/client";
 import { Card, CardHeader } from "@/components/ui";
 import { FeatureBadge } from "@/components/feature-badge";
 import type { Settings } from "@/lib/domain/settings";
-import { STAGE_LABEL } from "@/lib/domain/stages";
 import { useServerAction } from "@/lib/use-action";
 import { cn } from "@/lib/utils";
 import { addPincodeRuleAction, removePincodeRuleAction, saveBranchAction, saveSettingsAction } from "./actions";
@@ -158,7 +157,6 @@ export function HoursSettings({ settings }: { settings: Settings }) {
   const { pending, run } = useServerAction();
   const [wh, setWh] = useState(settings.workingHours);
   const [sla, setSla] = useState({ first: String(settings.sla.firstContactMins), esc: String(settings.sla.escalateMins) });
-  const [stale, setStale] = useState(Object.fromEntries(Object.entries(settings.reminders.staleDays).map(([k, v]) => [k, String(v)])));
   const [apptH, setApptH] = useState(String(settings.reminders.appointmentHours));
 
   return (
@@ -212,17 +210,13 @@ export function HoursSettings({ settings }: { settings: Settings }) {
       <Card>
         <CardHeader title="Reminders" />
         <div className="space-y-4 p-4">
-          <div>
-            <div className="label">Nudge when a lead sits in a stage with no activity for (days)</div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {Object.entries(stale).map(([stage, v]) => (
-                <label key={stage} className="flex items-center justify-between gap-2 text-sm">
-                  <span>{STAGE_LABEL[stage as keyof typeof STAGE_LABEL]}</span>
-                  <input className="field w-20" inputMode="numeric" value={v} onChange={(e) => setStale({ ...stale, [stage]: e.target.value })} />
-                </label>
-              ))}
-            </div>
-          </div>
+          <p className="text-sm text-slate-600">
+            &ldquo;No activity for N days&rdquo; nudges are set per stage in{" "}
+            <Link href="/dashboard/masters/pipelines" className="text-brand hover:underline">
+              Masters → Pipelines &amp; Statuses
+            </Link>
+            .
+          </p>
           <label className="block text-sm">
             <span className="label">Showroom visit reminder (hours before)</span>
             <input className="field w-24" inputMode="numeric" value={apptH} onChange={(e) => setApptH(e.target.value)} />
@@ -230,7 +224,7 @@ export function HoursSettings({ settings }: { settings: Settings }) {
           <button
             className="btn"
             disabled={pending}
-            onClick={() => run(() => saveSettingsAction("reminders", { staleDays: Object.fromEntries(Object.entries(stale).map(([k, v]) => [k, Number(v)])), appointmentHours: Number(apptH) }))}
+            onClick={() => run(() => saveSettingsAction("reminders", { appointmentHours: Number(apptH) }))}
           >
             Save reminders
           </button>
@@ -242,24 +236,25 @@ export function HoursSettings({ settings }: { settings: Settings }) {
 
 export function DuplicateSettings({ settings }: { settings: Settings }) {
   const { pending, run } = useServerAction();
-  const [d, setD] = useState({ policy: settings.duplicates.policy, windowDays: String(settings.duplicates.windowDays) });
+  const [d, setD] = useState({ windowDays: String(settings.duplicates.windowDays) });
   return (
     <Card>
       <CardHeader title="Same phone number enquires again" />
-      <div className="space-y-4 p-4">
-        <Radio
-          value={d.policy}
-          onChange={(policy) => setD({ ...d, policy })}
-          options={[
-            { value: "LINK_SAME_OWNER", label: "Link to the existing lead, same salesperson", hint: "The new enquiry is linked, goes to the same owner and branch, and the owner is told it's a returning customer." },
-            { value: "WARN_ONLY", label: "Route normally, show a warning", hint: "The lead is routed by location; a “Possible duplicate” banner links the earlier enquiry." },
-          ]}
-        />
+      <div className="space-y-4 p-4 text-sm text-slate-600">
+        <p>
+          <strong className="text-ink">The phone number is the customer&apos;s key.</strong> The database allows only one open lead per number, so the same
+          person can&apos;t be entered twice:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>A Meta / website / WhatsApp / CSV enquiry from a number that already has an open lead is added to that lead&apos;s timeline. Same owner, no new lead; the owner is notified.</li>
+          <li>Someone typing the number on the New lead form is sent to the existing lead (or told it exists in another branch).</li>
+          <li>If the earlier lead is closed (won or lost), a new lead is created and marked &ldquo;Returning customer&rdquo;.</li>
+        </ul>
         <label className="block text-sm">
-          <span className="label">Look back (days)</span>
+          <span className="label">Mark as returning customer if the earlier enquiry is within (days)</span>
           <input className="field w-24" inputMode="numeric" value={d.windowDays} onChange={(e) => setD({ ...d, windowDays: e.target.value })} />
         </label>
-        <button className="btn" disabled={pending} onClick={() => run(() => saveSettingsAction("duplicates", { policy: d.policy, windowDays: Number(d.windowDays) }))}>
+        <button className="btn" disabled={pending} onClick={() => run(() => saveSettingsAction("duplicates", { windowDays: Number(d.windowDays) }))}>
           Save
         </button>
       </div>

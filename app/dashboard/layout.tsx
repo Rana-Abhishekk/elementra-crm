@@ -1,22 +1,29 @@
 import { redirect } from "next/navigation";
-import { getOptionalUser } from "@/lib/auth";
-import { isDemoMode } from "@/lib/access";
+import { getCurrentUser, isDemoMode } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/shell/app-shell";
 import { NotificationBell } from "@/components/shell/notification-bell";
+import { getSessionUserId } from "@/lib/auth/options";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const sessionUser = await getOptionalUser();
-  if (!sessionUser) redirect("/login");
-  const user = await prisma.user.findUnique({
-    where: { id: sessionUser.id },
-    select: { name: true, email: true, role: true, branch: { select: { name: true } } },
-  });
-  if (!user) redirect("/login");
+  const user = await getCurrentUser();
+  if (!user) {
+    // A valid cookie but no active user → the account was deactivated (or deleted) since sign-in
+    redirect((await getSessionUserId()) ? "/login?reason=deactivated" : "/login");
+  }
+  // Temporary password set by an admin → choose a new one before anything else
+  if (user.mustChangePassword) redirect("/account/password");
+  const branch = user.branchId ? await prisma.branch.findUnique({ where: { id: user.branchId }, select: { name: true } }) : null;
 
   return (
     <AppShell
-      user={{ name: user.name, email: user.email, role: user.role, branchName: user.branch?.name.replace(" Experience Centre", "") ?? null }}
+      user={{
+        name: user.name,
+        email: user.email,
+        roleName: user.roleName,
+        branchName: branch?.name.replace(" Experience Centre", "") ?? null,
+        permissions: user.permissions,
+      }}
       demoMode={isDemoMode()}
       bell={<NotificationBell />}
     >

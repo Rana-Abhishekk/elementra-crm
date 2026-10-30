@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { isDemoMode, requirePageRole } from "@/lib/access";
+import { can, isDemoMode, requirePagePermission } from "@/lib/auth";
 import { getSettings } from "@/lib/data/settings";
 import { PageHeader, Tabs } from "@/components/ui";
 import { FeatureBadge } from "@/components/feature-badge";
@@ -13,23 +13,24 @@ import { TemplatesEditor } from "./templates-editor";
 import { Integrations, type IntegrationCard } from "./integrations";
 
 const TABS = [
-  { key: "routing", label: "Routing" },
-  { key: "hours", label: "Working hours & SLA" },
-  { key: "templates", label: "Templates" },
-  { key: "duplicates", label: "Duplicates" },
-  { key: "integrations", label: "Integrations" },
-];
+  { key: "routing", label: "Routing", perm: "settings.manage" },
+  { key: "hours", label: "Working hours & SLA", perm: "settings.manage" },
+  { key: "templates", label: "Templates", perm: "templates.manage" },
+  { key: "duplicates", label: "Duplicates", perm: "settings.manage" },
+  { key: "integrations", label: "Integrations", perm: "integrations.manage" },
+] as const;
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  await requirePageRole("OWNER", "ADMIN");
+  const user = await requirePagePermission("settings.manage", "templates.manage", "integrations.manage");
+  const tabs = TABS.filter((t) => can(user, t.perm));
   const requested = (await searchParams).tab;
-  const tab = TABS.some((t) => t.key === requested) ? requested! : "routing";
+  const tab = tabs.find((t) => t.key === requested)?.key ?? tabs[0].key;
   const settings = await getSettings();
 
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader title="Settings" description="The defaults from the Rules Sheet. Every change is written to the audit log." />
-      <Tabs active={tab} tabs={TABS.map((t) => ({ ...t, href: `?tab=${t.key}` }))} />
+      <Tabs active={tab} tabs={tabs.map((t) => ({ key: t.key, label: t.label, href: `?tab=${t.key}` }))} />
       {tab === "routing" && <RoutingTab settings={settings} />}
       {tab === "hours" && <HoursSettings settings={settings} />}
       {tab === "templates" && <TemplatesTab />}

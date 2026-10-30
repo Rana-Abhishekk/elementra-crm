@@ -2,7 +2,7 @@ import Link from "next/link";
 import { HardHat } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { leadWhereForUser } from "@/lib/access";
+import { leadWhere } from "@/lib/auth/scope";
 import { FeatureBadge } from "@/components/feature-badge";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { PROJECT_STAGES, PROJECT_STAGE_LABEL } from "@/lib/domain/labels";
@@ -13,7 +13,7 @@ import { shortBranch } from "@/lib/domain/routing/decide";
 export default async function ProjectsPage() {
   const user = await requireUser();
   const projects = await prisma.project.findMany({
-    where: { lead: leadWhereForUser(user) },
+    where: { lead: leadWhere(user) },
     include: { lead: { select: { refCode: true, firstName: true, lastName: true, orderValueInr: true, products: true } }, branch: true, designer: { select: { name: true } }, supervisor: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });

@@ -323,3 +323,202 @@ The spec's `Activity` (lead timeline) and the existing `Activity` (contact/deal 
 | 5. Owner view | ✅ | Deterministic generator (`lib/demo/generate.ts`, seed 20261028, relative dates) using the real resolver/router; a deterministic adjustment pass guarantees the §9.8 live state (8 needs-location, ~5 SLA breaches, 9 won with 2 handed over, 2 revive reminders, overdue spread across reps with Arjun highest, nurture follow-ups so R3 fires on only a few). `db:seed:demo` (clears + regenerates + one engine pass, ~2 s), `db:reset` = migrate reset + seed:demo, in-app Reset (confirm modal). Dashboard (period tabs, 8 KPIs per §14, 6 single-series charts with validated colours, hover tooltips, value labels and table views; needs-attention + recent activity). Reports (pivots A/B/C + source outcome + lost reasons, date/branch filters, per-report CSV). Map (Leaflet client-only, branch radius circles, pins by stage group) + Routing playground (dry run, shows next rep). Team (branch cards, on-leave / receives-leads toggles with audit, load + performance columns) + Leave planner tab (In progress). Pivot C is shown as Branch → Rep rows rather than a sparse Branch × Rep grid (each rep belongs to one branch). Seen in Chrome: dashboard + map + playground. |
 | 6. Breadth | ✅ | Meta CSV import wizard (client-side parse + mapped preview, server import through `ingestLead({quiet:true})` — no welcome messages / notifications for backfills, ImportJob history, duplicate report; re-import creates nothing) + legacy sheet column-mapping preview (In progress); fixture `prisma/fixtures/meta-leads-sample.csv` (15 synthetic rows). Settings tabs (routing mode / out-of-area action / branch radius + strategy / pincode rules; hours + SLA + stale days; templates with live preview + simulated approval status; duplicates; integrations cards with honest status + test buttons). Automations (R1–R9 cards: on/off via `reminders.disabledRules`, thresholds, fired today / this week, last 5 firings, Run now, last run). Campaigns (campaign → ad set → ad performance, manual spend → CPL; broadcasts segment builder with live audience count, send disabled). Audit log with filters + links. Projects list + 8-step stepper + advance (handover sets the 5-year warranty). Quotations concept screen. Contacts (kind tabs, contact page with enquiries / leads influenced, architects' won value), Companies (kind tabs + partner columns), Deals (stage summary moved from the old Overview + lead link); existing create forms keep working and now set `kind` / `phoneE164`. Every nav route verified for all 5 demo roles. |
 | 7. Polish & hand-off | ✅ | `npm run build` green. §19 walked in Chrome as Owner / Online Desk / Andheri rep (steps 1–12 by clicking; 13–15 checked earlier), then `npm run demo:acceptance` (resets + asserts the same server paths) run twice in a row: 13/13 both times. 390 px checked with headless Chrome (CDP, mobile viewport, real session): no horizontal overflow on any main page; lead list → cards with thumb-sized Call/WhatsApp. Fixes found in the walkthrough: Next dev indicator covered Sign out (→ `devIndicators: false`); routing card moved to the top of the lead page; `/login` made dynamic so `DEMO_MODE` isn't frozen at build; cards `min-w-0` (dashboard overflow on phones); bell caps toasts at 3 per poll; R1 copies the business owner; browser-extension hydration warning suppressed on `<html>`. README rewritten (setup, ports, demo logins, reset, local reminder runner, Vercel Hobby cron limit). |
+
+---
+
+# Week 2 — Masters, Users & Roles, Qualification, Duplicates, Chatbot, Staging
+
+> Written at Phase W0 (2026-10-30). Source of truth: `06_WEEK2_SPEC_MASTERS_ROLES_QUALIFICATION_CHATBOT.md` (wins over `01` §7 enums and §12 roles).
+> Branch: `feature/week2-masters-rbac`, cut from `feature/crm-demo` @ `aa3b802` (there is no local `main` with commits; see D1).
+
+## W.1 Audit summary
+
+- **Starting point:** 47 features in `lib/features.ts` (33 Live), 94 Vitest tests in 30 suites, `demo:check` (10 scenarios) and `demo:acceptance` (§19) green at `aa3b802`. 3 migrations (`init`, `crm_demo_foundation`, `crm_lead_ref_seq`).
+- **Enums being replaced:** `LeadStage` (10 values), `LostReason` (6), `LeadSource` (11), `Product` (6), `Role` (5). They're used in **80 files** (list in W.4). `Priority`, `IntakeChannel` and all technical enums stay.
+- **Hard-coded business labels** live in two modules (`lib/domain/stages.ts`: stage labels/short labels/colours/order/transitions/legacy parsing; `lib/domain/labels.ts`: `ROLE_LABEL`, `SOURCE_LABEL`, `PRODUCT_LABEL`, `productPhrase`), plus literals in the demo generator/scenarios, Meta/Sheets mappers, `/enquire` and the new-lead form, R3's `staleDays` keyed by stage enum in `AppSetting`, and `"Kitchen"` defaults in `workflow.ts`/`send.ts`.
+- **Behaviour tied to specific stages today** (must survive without labels):
+  - connected call on NEW → CONTACTED (D18), `firstContactedAt` set when entering CONTACTED;
+  - qualifying a located Online-Desk lead hands it over (via-pre-sales mode);
+  - appointment "Visited" → Discovery stage (D18);
+  - out-of-area "close" → Closed Lost / Others with note;
+  - R3 uses `QUOTATION_FOLLOW_UP` for Quotation Sent; R7 only for On hold / Timeline.
+- **Access control today:** `lib/access.ts` switches on the `Role` enum (`leadWhereForUser`, `canSeeLead`, `canEditLead`, `isManager`, `requireRole`, `requirePageRole`), ~35 call sites. The JWT carries `role` + `branchId`, refreshed every 5 min (D7). `lib/nav.ts` filters by role arrays. `notify.ts#ownerIds`, `assign.ts` (manager fallback) and R1b/R8/R9 pick recipients by role.
+- **Routing already reads branches, pincode rules and localities from the DB on every call** (`loadRoutingContext`), so the Branch and Areas masters only need screens, plus `isActive` filtering.
+- **Docs gap:** `project_docs/05_DEMO_REHEARSAL_GUIDE.md` is listed in `project_docs/README.md` but **isn't in the repo**. Until it's added, the regression check is `03_CLIENT_PITCH_AND_DEMO_SCRIPT.md` (15-min talk track) + `npm run demo:check` + `npm run demo:acceptance`.
+- **Tooling:** `vercel` CLI is **not installed** → no preview deploy (06 §9). Local DB container `elementra-crm-db` up on 5610.
+
+## W.2 Schema diff (field by field)
+
+### New enums
+`StageCategory {OPEN, WON, LOST}` · `DataScope {OWN, BRANCH, ALL}` · `ChatChannel {WHATSAPP, WEBSITE, TEST}` · `ChatStepType {MESSAGE, CHOICE, MULTI_CHOICE, TEXT, NAME, PHONE, AREA}` · `ChatSessionStatus {ACTIVE, COMPLETED, HANDED_OFF, ABANDONED}`.
+`IntakeChannel` **gains** `WEBSITE_CHAT`.
+
+### Dropped enums
+`LeadStage`, `LostReason`, `LeadSource`, `Product` (type renamed then dropped, see W.3), `Role` (same).
+
+### New models (as 06 §3, with these additions)
+
+| Model | Fields beyond 06 | Why |
+|---|---|---|
+| `Pipeline` | — | as spec; `autoProducts Product[] @relation("PipelineAutoProducts")` |
+| `PipelineStage` | — | as spec; `systemKey` used for the hooks in D-W3 |
+| `Source` | `isFallback Boolean @default(false)` | 06 §4.4 "the source flagged as fallback ('Other')" needs a flag |
+| `Product` | — | as spec; `leads Lead[] @relation("LeadProducts")` (named implicit m2m `_LeadProducts`) |
+| `LookupValue` | back-relations `leadsBudget`, `leadsPossession`, `leadsPropertyType`, `leadsConfiguration`, `usersDesignation` | relation names from 06 §3 notes |
+| `Role` | — | as spec (`scope`, `permissions String[]`, `isSystem`, `isLocked`) |
+| `ChatbotFlow`, `ChatbotStep`, `ChatMessage` | — | as spec |
+| `ChatSession` | `ipHash String?`, `nudgedAt DateTime?`, `@@index([ipHash, createdAt])` | DB rate limit (D-W10); R11 one-nudge idempotency |
+| `DuplicateDismissal` | `by User @relation("DuplicateDismissedBy")`, `reason String?` | show who dismissed in the queue |
+
+### `User`
+
+| Field | Change |
+|---|---|
+| `role Role` (enum) | **removed** → `roleId String` + `role Role @relation(...)` |
+| `branchId` / `branch` | kept; relation renamed `@relation("UserHomeBranch")` |
+| `extraBranches Branch[] @relation("UserExtraBranches")` | new |
+| `reportsToId String?` / `reportsTo` / `reports` | new, `@relation("UserReportsTo")` |
+| `employeeCode String? @unique` | new |
+| `designationId String?` → `LookupValue @relation("UserDesignation")` | new |
+| `mustChangePassword Boolean @default(false)` | new |
+| `lastLoginAt DateTime?`, `deactivatedAt DateTime?` | new |
+| `dismissedDuplicates DuplicateDismissal[]` | new back-relation |
+| kept | `isActive, receivesLeads, onLeave, onLeaveUntil, lastAssignedAt, phone` |
+
+### `Branch`
+`users User[] @relation("UserHomeBranch")` (renamed), `extraUsers User[] @relation("UserExtraBranches")` (new). `code` stays `@unique`, now editable in the UI. `isActive` already exists.
+
+### `Lead`
+
+| Field | Change |
+|---|---|
+| `stage LeadStage`, `lostReason LostReason?` | **removed** → `stageId String` → `PipelineStage` |
+| — | `pipelineId String` → `Pipeline` (new, required) |
+| `source LeadSource` | **removed** → `sourceId String` → `Source` |
+| `products Product[]` (enum list) | **removed** → `products Product[] @relation("LeadProducts")` |
+| `budgetBandId`, `possessionTimelineId`, `propertyTypeId`, `configurationId` | new, `String?` → `LookupValue` (named relations) |
+| `qualificationScore Int?`, `qualifiedAt DateTime?`, `qualifiedById String?` | new |
+| `priorityIsManual Boolean @default(false)` | new |
+| `mergedIntoId String?` (+ `mergedInto`/`mergedFrom` self-relation `"LeadMerge"`) | new |
+| `chatSessionId String?` | new |
+| `whatsappOptOut Boolean @default(false)` | new — chatbot "stop" (06 §8.1 says "opt-out flag on the lead" without naming it) |
+| kept | `stageChangedAt, lostNote, reviveAt, priority, possessionDate, budgetNote, …` |
+| indexes | `@@index([ownerId, stage])` / `[branchId, stage]` → `[ownerId, stageId]` / `[branchId, stageId]`; + `[pipelineId, stageId]`, `[email]`, `[altPhoneE164]`, `[mergedIntoId]` |
+
+`Activity.meta` for `STAGE_CHANGE` now stores `{ fromStageId, toStageId, fromLabel, toLabel }` so history keeps the label it had (06 §4.2). Old rows (`{from, to}` enum strings) render from `body`, which already contains the labels.
+
+### `AppSetting` keys
+- `reminders.staleDays` (keyed by stage enum) → **moves onto `PipelineStage.staleDays`/`staleTaskType`**; key removed from the zod schema.
+- `duplicates.policy` (`LINK_SAME_OWNER | WARN_ONLY`) → `duplicates.intakePolicy` (`LINK | MERGE | CREATE_AND_FLAG`), `duplicates.manualPolicy` (`WARN | BLOCK`), `duplicates.windowDays` kept. `getSettings()` maps the old stored value (`LINK_SAME_OWNER→LINK`, `WARN_ONLY→CREATE_AND_FLAG`).
+- new `qualification` (weights, required keys, `minBudgetBandId`, hot/warm thresholds), `chatbot` (enabled per channel, nudge minutes 30, expiry hours 24, handoff keywords).
+
+## W.3 Migration approach — **data-mapping, hand-ordered SQL** (chosen)
+
+One migration `20261030xxxxxx_week2_masters_rbac` (+ a small `week2_chatbot` one in W6, `week2_qualification` fields go in the first). Generated with `prisma migrate dev --create-only`, then hand-edited in this order:
+
+1. Create the new enums and the tables that don't clash (`Pipeline`, `PipelineStage`, `Source`, `LookupValue`, `DuplicateDismissal`).
+2. **Insert the master rows in SQL with fixed ids** (`stg_new`, `src_instagram_paid`, `role_super_admin`, …): default pipeline + 15 stages, 12 sources, the 5 roles. The seed later upserts by `systemKey`/`name`, so seed and migration agree.
+3. `Lead`: add `pipelineId/stageId/sourceId` nullable → `UPDATE` with a `CASE` mapping (`CLOSED_LOST + BUDGET → stg_lost_budget`, …) → `SET NOT NULL` + FKs → drop `stage`, `lostReason`, `source`.
+4. `Product`: `ALTER TYPE "Product" RENAME TO "Product_legacy"` → create table `Product` + `_LeadProducts` → insert 7 rows → `INSERT … SELECT unnest(products)` → drop `Lead.products` → `DROP TYPE "Product_legacy"`. (06 §3 gotcha: enum and table share the type namespace.)
+5. `Role`: same rename trick → table `Role` → `User.roleId` mapped (`OWNER/ADMIN→Super Admin`, `SALES_MANAGER→Branch Manager`, `SALES_REP→Sales Executive`, `PRESALES→Online Desk`) → drop `User.role` → drop type.
+6. Drop `LeadStage`, `LostReason`, `LeadSource`; add the new `User`/`Lead` columns; rename the `User↔Branch` relation (FK name only, no data change).
+
+**Why mapping rather than destructive + reseed:** 06 prefers it; it proves the chain works with `migrate deploy` on a DB that already has data (staging will be created with the old chain if anything is deployed before W1 lands); and local users keep their logins. **Verification before the W1 commit:** (a) apply on the current local DB with data and check counts per stage/source/product/role are unchanged; (b) `prisma migrate reset` on an empty DB (needs consent, see questions); (c) `prisma migrate deploy` against a scratch database `elementra_crm_w2check` on the same container. Fallback if step 4/5 misbehaves: keep the SQL mapping for stages/sources and reseed roles/products only — still no stack change.
+
+## W.4 Auth & sessions
+
+- **Folder:** `lib/auth.ts` → `lib/auth/index.ts` (import path `@/lib/auth` unchanged, so the old "ambiguous path" reason for `lib/access.ts` goes away) + `lib/auth/permissions.ts` (catalogue + groups + descriptions), `lib/auth/current-user.ts` (`getCurrentUser = cache(...)`), `lib/auth/scope.ts` (`leadWhere`, `userWhere`, `canSeeLead`, `canEditLead`, `branchManagersOf`), `lib/auth/guards.ts` (`can`, `requirePermission`, `requirePagePermission`, `requireLeadInScope` → `notFound()`), `lib/auth/escalation.ts` (pure guards 06 §5.4). `lib/access.ts` is deleted once every caller has moved.
+- **JWT:** `{ id, name, email }` only. `jwt` callback no longer reads the DB (D7 retired). `types/next-auth.d.ts` drops `role`/`branchId`.
+- **Per request:** `getCurrentUser()` loads user + role + permissions + `branchIds` (home + extra) once per request via React `cache()` (pattern from `node_modules/next/dist/docs/01-app/02-guides/data-security.md`). In server actions and route handlers `cache()` doesn't memoise across calls, which is fine (one call per action).
+- **Deactivated / missing user:** `getCurrentUser()` returns `null` → pages redirect to `/login?reason=deactivated`; actions/route handlers return 401. `proxy.ts` lets `/login?reason=deactivated` through even with a token (otherwise it would bounce back to `/dashboard`), and the login page calls `signOut({ redirect: false })` to clear the cookie.
+- **Login:** `authorize()` sets `lastLoginAt`. `mustChangePassword` → dashboard layout redirects to `/dashboard/account/password` (`/account` redirects there; one shell, one proxy matcher).
+- **Enforcement:** every server action and route handler starts with `requirePermission(key)` or `getCurrentUser()` + `leadWhere`. A grep test (`lib/auth/coverage.test.ts`) fails if an exported function in any `app/**/actions.ts` / `route.ts` doesn't reference one of the guards (public routes allow-listed).
+
+## W.5 Refactor list (from the grep; S = stage, L = lost reason, Src = source, P = product, R = role)
+
+| Area | Files | Change |
+|---|---|---|
+| Masters runtime | `lib/domain/stages.ts` (S L), `lib/domain/labels.ts` (Src P R) | Stage/source/product/role maps deleted. `stages.ts` keeps pure helpers over `StageRef {id,label,category,sortOrder,flags}`: `canTransition`, `isOpen`, `matchLegacyStatus(stages, raw)`, `validatePipeline`. New `lib/data/masters.ts` loads active masters (cached per request). `productPhrase(products: {name}[])`. |
+| Domain | `leads/workflow.ts` (S L P), `leads/ingest.ts` (S L Src P), `leads/reroute.ts` (S), `leads/context.ts` (S), `messaging/replies.ts` (S), `messaging/send.ts` (P), `notify.ts` (R), `routing/assign.ts` (R), `settings.ts` (Src) | stage by id + category/flags/systemKey hooks (D-W3); pipeline auto-selection; source via integration keys; manager fallback = branch manager by scope; owners = Super Admin users (D-W6) |
+| Reminders | `reminders/rules.ts` (S L R), `engine.ts` (S L), `rules.test.ts` | snapshot carries `stage {category, isInitial, staleDays, staleTaskType, askReviveDate, label}`; R1 = `isInitial`; R3 = `stage.staleDays`; R7 = LOST + `askReviveDate`; recipients by scope/permission; + R10, R11 |
+| Integrations | `integrations/metaLead.ts` (L Src P), `sheets.ts` (S Src P), `metaCsv.ts`, `meta.test.ts` | mappers take a `MasterIndex` (integration keys → source id, Meta answer keys → product id, legacy status → stage id); still pure |
+| Data/reports | `lib/data/leads.ts` (S L Src P R), `dashboard.ts` (S Src R), `reports.ts` (S L Src P R), `sla.ts` (S) | filters by ids; funnel/pivots from stage master per pipeline (pipeline filter); lost-reasons chart = LOST stages; all queries via `leadWhere`/`userWhere` |
+| Lead pages | `leads/page.tsx`, `lead-table.tsx`, `leads/actions.ts`, `leads/new/new-lead-form.tsx`, `leads/[id]/page.tsx`, `stage-control.tsx`, `details-panel.tsx`, `components/lead-badges.tsx` | dropdowns from masters (active only; inactive greyed); stage badge colour from `stage.color`; Lost modal → LOST-stage picker |
+| Pipeline | `pipeline/page.tsx`, `kanban.tsx` | pipeline switcher (remembered in a cookie, D-W8), columns = active OPEN stages, Won/Lost pickers |
+| Other pages | `appointments/actions.ts`, `campaigns/page.tsx`, `deals/page.tsx`*, `contacts/page.tsx`*, `contacts/[id]/page.tsx`, `companies/page.tsx`*, `map/page.tsx`, `projects/*`, `queues/page.tsx`, `team/page.tsx`, `reports/page.tsx`, `settings/settings-forms.tsx`, `imports/import-wizard.tsx`, `api/leads/export`, `api/reports/export`, `api/public/leads`, `enquire/actions.ts`, `enquire/enquiry-form.tsx`, `lib/features.ts` | labels/filters from masters (* = `DealStage`/`"NEW"` false positives — `DealStage` stays) |
+| Role checks (~35 call sites) | every `requireRole`/`requirePageRole`/`isManager`/`isAdmin`/`canReassign` in `app/**`, `lib/nav.ts`, `components/shell/app-shell.tsx`, `app/dashboard/layout.tsx` | → `requirePermission` / `can`; nav items declare `perm` |
+| Demo/seed/scripts | `lib/demo/generate.ts` (≈60 enum literals), `pools.ts`, `scenarios.ts`, `reference.ts`, `prisma/seed.ts`, `seed-demo.ts`, `scripts/check-acceptance.ts`, `check-scenarios.ts` | look up stages by `systemKey`, sources/products by name, roles by name |
+| Tests | `stages.test.ts`, `access.test.ts` (→ `lib/auth/scope.test.ts`), `rules.test.ts`, `meta.test.ts`, `routing.test.ts` | rewritten on fixture masters; behaviour assertions kept |
+
+Allowed remaining exceptions (to be listed in `STATUS.md`): seed files and the demo generator name seeded rows (that's their job); `systemKey` strings in the D-W3 hooks; `LookupValue.listKey` constants (06 §4.7: "the code knows the key").
+
+## W.6 Route / page map (new)
+
+| Route | Permission | Phase |
+|---|---|---|
+| `/dashboard/masters` → first permitted tab | any masters/people perm | W2 |
+| `/dashboard/masters/pipelines?id=` (list + stage editor, drag reorder, merge stage, duplicate pipeline) | `pipelines.manage` | W2 |
+| `/dashboard/masters/branches`, `/branches/[id]?tab=details|pincodes|members` (Leaflet pin picker) | `branches.manage` | W2 |
+| `/dashboard/masters/sources`, `/products`, `/areas` (+ Test), `/lists?key=BUDGET_BAND` | `masters.manage` | W2 |
+| `/dashboard/masters/users` (+ drawer, temp password, deactivate-with-reassign) | `users.view` / `users.manage` | W3 |
+| `/dashboard/masters/roles`, `/roles/[id]` (clone, Preview as…) | `roles.manage` | W3 |
+| `/dashboard/team-performance` (Insights; person → audit + tasks) | `team.performance` | W3 |
+| `/dashboard/account`, `/dashboard/account/password`; `/account` → redirect | signed in | W3 |
+| `/dashboard/settings?tab=qualification` | `settings.manage` | W4 |
+| `/dashboard/queues?tab=duplicates` | `queues.duplicates` | W5 |
+| `/dashboard/chatbot?tab=flow|test|conversations|settings` | `chatbot.manage` | W6 |
+| `/chat` (public, mobile-first) + "Chat with us" on `/enquire` | public | W6 |
+| `POST /api/public/chat` (start/message, visitor cookie, honeypot, rate limit) | public | W6 |
+| `POST /api/leads/duplicate-check` (live check on blur; scope-aware answer) | `leads.create` | W5 |
+
+Moved: Settings → Routing keeps routing mode / out-of-area action; branch radius, strategy and pincode rules move to the Branches master. Settings → Hours keeps SLA; stale days move to the stage editor. Existing `/dashboard/team` (branch cards, on-leave) stays.
+
+Shared UI: `components/master-table.tsx` (search, show inactive, Used by N, drag order via `@dnd-kit/core` already installed, row actions, side drawer) + `lib/domain/masters/actions-core.ts` (create/update/toggle/merge/delete-if-unused with audit before → after).
+
+## W.7 Decisions (Week 2)
+
+| # | Decision | Reason |
+|---|---|---|
+| D-W1 | Branch from `feature/crm-demo` (no local `main` with commits). One commit per phase W1–W7. Nothing pushed. | 07 §4 |
+| D-W2 | Lost stages keep the client's numbering: `10. Closed Lost – Budget`, `10. Closed Lost – Competitor`, `11. … Timeline`, `12. … No response`, `13. … On Hold`, `14. … Others` → **15 stage rows** for the "14 statuses". `askReviveDate` on On Hold + Timeline; `requiresQualification` on stage 3 and every later OPEN stage. | 02 §1 + 06 §4.2 |
+| D-W3 | Stage-specific automations use `systemKey` hooks and silently no-op if the stage is missing/inactive: `CONTACTED` (connected call on the initial stage; `firstContactedAt`), `DISCOVERY_MEETING` (visit marked Visited), `QUALIFIED`-style handover = **first `requiresQualification` stage**, out-of-area close = **first active LOST stage with `systemKey LOST_OTHERS`, else the last LOST stage**. Labels are never compared. | 06 §2 forbids labels, not stable keys; keeps D18 behaviour |
+| D-W4 | Transitions: within OPEN stages forward any, one step back (by `sortOrder` of active stages); OPEN → any WON/LOST; WON/LOST → OPEN needs `pipeline.reopen`. Moving between pipelines: same category + nearest `sortOrder`, confirm dialog. | 02 §1 rule, generalised |
+| D-W5 | `Source.isFallback` flag (seeded on "Other"); unmapped intake values are counted from `Lead.rawPayload`/import errors and shown on Integrations. | 06 §4.4 |
+| D-W6 | "Business owner" recipients (owner copies, R9 all-branch digest) = active users whose role `isLocked` (Super Admin). "Branch manager of X" (R1b, R9 branch digest, assignment fallback, dedupe notifications) = active users with scope `BRANCH` whose home or extra branches include X, home-branch first. "Online Desk lead" (R8) = users with `queues.needsLocation`. | Replaces role-enum lookups without labels |
+| D-W7 | `OWNER` and `ADMIN` both become Super Admin (06 §5.2). Aarav Mehta stays the demo "Owner" by name; the seed admin also gets owner copies (harmless). | spec mapping |
+| D-W8 | Kanban pipeline choice remembered in a cookie (`kanban_pipeline`), not the DB. | "remembered per user" on the same device is enough for the demo; no schema |
+| D-W9 | Out-of-area leads stay visible to `queues.outOfArea` holders across branches (current manager behaviour); executives never see them. Worli manager → sees out-of-area leads with no branch, never Pune-branch leads. | 06 §5.3 `unroutedClause` |
+| D-W10 | Chat rate limit is DB-based: `ChatSession.ipHash` (SHA-256 of IP + `NEXTAUTH_SECRET`) and a count of inbound `ChatMessage`s in the last 10 min (30 max). | memory limits don't work on serverless |
+| D-W11 | Chatbot "skip": allowed on optional steps immediately, and after 2 failed retries; required steps hand off after 2 retries. Session resume = same visitor cookie / phone + ACTIVE status. | 06 §8.1 |
+| D-W12 | Merge is idempotent: re-running on an already-merged secondary returns "already merged into EL-…" without changes. | 06 §7.4 |
+| D-W13 | Staging deploy: no Vercel CLI here → stop at deploy-ready; `STAGING.md` uses build command `prisma generate && prisma migrate deploy && next build` with `directUrl = env("DIRECT_URL")` for Neon. | 06 §9 |
+| D-W14 | Demo quick-login chips gain Vikram Sethi (Regional) and are grouped by role. Demo panel requires `demo.use`. | 06 §5.7, §9 |
+| D-W15 | Seed users mapped per 06 §5.2; Vikram Sethi = Branch Manager, home Worli, extra Andheri + Tardeo, `receivesLeads=false`. Acceptance step 7's "Regional Manager" role is created by cloning during the walkthrough, not seeded. | 06 §5.7, §11 |
+
+## W.8 Risks
+
+| Risk | Mitigation |
+|---|---|
+| Big-bang refactor (80 files) in W1 breaks the demo between commits | W1 is one commit only after lint/typecheck/test + `demo:check` + `demo:acceptance` pass; old helpers removed only when the compiler finds no callers |
+| Hand-ordered migration (enum ↔ table rename) | verified three ways (W.3); fixed ids shared with seed |
+| `prisma migrate reset` is blocked for agents without consent | ask once (below); otherwise verify empty-DB apply on a scratch database instead |
+| Scope bugs leak data | all lead/user queries via `leadWhere`/`userWhere`; scope + 404 tests; guard-coverage grep test; final permissions audit (07 follow-up prompt) |
+| Stale permissions | none by design: DB read per request (D7 retired) |
+| `/login` bounce loop for deactivated users | proxy exception for `reason=deactivated` (W.4) |
+| Kanban/report queries slower with joins | indexes on `stageId`/`pipelineId`; masters loaded once per request |
+| Missing 05 rehearsal guide | use 03 + scripted checks until it's added |
+| Chatbot abuse on a public URL | honeypot, 500-char cap, DB rate limit, text-only rendering, TEST channel by default in the console |
+| Vercel Hobby cron once a day → R10/R11 nudges only daily on staging | documented; "Run reminders now"; external pinger option in `STAGING.md` |
+
+## W.9 Phase log (Week 2)
+
+| Phase | Status | Notes |
+|---|---|---|
+| W0. Audit & plan | ✅ | This section. No code changed. |
+| W1. Masters data layer | ⏳ | |
+| W2. Masters admin UI | ⏳ | |
+| W3. Users & roles | ⏳ | |
+| W4. Qualification | ⏳ | |
+| W5. Duplicates | ⏳ | |
+| W6. Chatbot | ⏳ | |
+| W7. Staging & acceptance | ⏳ | |

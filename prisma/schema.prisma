@@ -11,14 +11,6 @@ datasource db {
 // ENUMS
 // ==========================================
 
-enum Role {
-  OWNER
-  ADMIN
-  SALES_MANAGER
-  PRESALES
-  SALES_REP
-}
-
 enum DealStage {
   LEAD
   QUALIFIED
@@ -56,43 +48,6 @@ enum AssignmentStrategy {
   LEAST_OPEN_LEADS
 }
 
-enum LeadStage {
-  NEW
-  CONTACTED
-  QUALIFIED
-  DISCOVERY_MEETING
-  QUOTATION_REQUESTED
-  QUOTATION_SENT
-  NEGOTIATION
-  TOKEN_RECEIVED
-  CLOSED_WON
-  CLOSED_LOST
-}
-
-enum LostReason {
-  BUDGET
-  COMPETITOR
-  TIMELINE
-  NO_RESPONSE
-  ON_HOLD
-  OTHERS
-}
-
-// Marketing source = the client's own dropdown values (+ WEBSITE)
-enum LeadSource {
-  INSTAGRAM_PAID
-  INSTAGRAM_ORGANIC
-  FACEBOOK
-  GOOGLE
-  WHATSAPP
-  LINKEDIN
-  REFERENCE
-  REPEAT_PURCHASE
-  WALK_IN
-  CALL
-  WEBSITE
-}
-
 // Technical intake channel = how the record entered the system
 enum IntakeChannel {
   META_LEAD_AD
@@ -103,13 +58,16 @@ enum IntakeChannel {
   MANUAL
 }
 
-enum Product {
-  KITCHEN
-  WARDROBES
-  FURNITURE
-  APPLIANCES
-  BEDS
-  OTHERS
+enum StageCategory {
+  OPEN
+  WON
+  LOST
+}
+
+enum DataScope {
+  OWN
+  BRANCH
+  ALL
 }
 
 enum Priority {
@@ -229,22 +187,32 @@ enum ProjectStage {
 // ==========================================
 
 model User {
-  id             String    @id @default(cuid())
-  name           String
-  email          String    @unique
-  passwordHash   String
-  role           Role      @default(SALES_REP)
-  phone          String?
-  branchId       String?
-  isActive       Boolean   @default(true)
-  receivesLeads  Boolean   @default(true)
-  onLeave        Boolean   @default(false)
-  onLeaveUntil   DateTime?
-  lastAssignedAt DateTime? // round-robin cursor
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  passwordHash       String
+  roleId             String
+  phone              String?
+  branchId           String? // home branch (routing / assignment)
+  reportsToId        String?
+  employeeCode       String?   @unique
+  designation        String?
+  mustChangePassword Boolean   @default(false)
+  lastLoginAt        DateTime?
+  deactivatedAt      DateTime?
+  isActive           Boolean   @default(true)
+  receivesLeads      Boolean   @default(true)
+  onLeave            Boolean   @default(false)
+  onLeaveUntil       DateTime?
+  lastAssignedAt     DateTime? // round-robin cursor
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  branch             Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  role               Role           @relation(fields: [roleId], references: [id])
+  branch             Branch?        @relation("UserHomeBranch", fields: [branchId], references: [id], onDelete: SetNull)
+  extraBranches      Branch[]       @relation("UserExtraBranches")
+  reportsTo          User?          @relation("UserReportsTo", fields: [reportsToId], references: [id], onDelete: SetNull)
+  reports            User[]         @relation("UserReportsTo")
   ownedContacts      Contact[]
   ownedDeals         Deal[]
   activities         Activity[]
@@ -258,6 +226,7 @@ model User {
   supervisedProjects Project[]      @relation("ProjectSupervisor")
 
   @@index([branchId])
+  @@index([roleId])
 }
 
 model Company {
@@ -283,7 +252,7 @@ model Contact {
   lastName  String?
   email     String?
   phone     String?
-  phoneE164 String?     @db.VarChar(16)
+  phoneE164 String?     @unique @db.VarChar(16) // one contact per phone number
   title     String?
   companyId String?
   ownerId   String?
@@ -299,23 +268,22 @@ model Contact {
 
   @@index([companyId])
   @@index([email])
-  @@index([phoneE164])
 }
 
 model Deal {
-  id         String    @id @default(cuid())
-  title      String
+  id        String    @id @default(cuid())
+  title     String
   // Amount in the smallest currency unit (paise), so no float rounding
-  amount     Int       @default(0)
-  currency   String    @default("INR")
-  stage      DealStage @default(LEAD)
-  closeDate  DateTime?
-  companyId  String?
-  contactId  String?
-  ownerId    String?
-  leadId     String?   @unique
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  amount    Int       @default(0)
+  currency  String    @default("INR")
+  stage     DealStage @default(LEAD)
+  closeDate DateTime?
+  companyId String?
+  contactId String?
+  ownerId   String?
+  leadId    String?   @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   company    Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
   contact    Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
@@ -352,6 +320,89 @@ model Activity {
 }
 
 // ==========================================
+// MASTERS (admin-managed lists)
+// ==========================================
+
+model Pipeline {
+  id           String          @id @default(cuid())
+  name         String          @unique
+  description  String?
+  isDefault    Boolean         @default(false) // exactly one
+  isActive     Boolean         @default(true)
+  sortOrder    Int             @default(0)
+  autoProducts Product[]       @relation("PipelineAutoProducts") // leads with these products start here
+  stages       PipelineStage[]
+  leads        Lead[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model PipelineStage {
+  id                    String        @id @default(cuid())
+  pipelineId            String
+  pipeline              Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  label                 String // the heading shown everywhere
+  category              StageCategory
+  sortOrder             Int
+  color                 String        @default("#64748B")
+  isInitial             Boolean       @default(false) // new leads start here (one per pipeline)
+  isActive              Boolean       @default(true)
+  requiresQualification Boolean       @default(false)
+  askReviveDate         Boolean       @default(false) // LOST stages like On hold / Timeline
+  requiresNote          Boolean       @default(false)
+  staleDays             Int? // reminder R3 threshold
+  staleTaskType         String? // "FOLLOW_UP" | "QUOTATION_FOLLOW_UP"
+  probability           Int?
+  systemKey             String? // stable key for automations, never shown
+  leads                 Lead[]
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@unique([pipelineId, label])
+  @@unique([pipelineId, systemKey])
+  @@index([pipelineId, sortOrder])
+}
+
+model Source {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  color           String   @default("#64748B")
+  isPaid          Boolean  @default(false)
+  isFallback      Boolean  @default(false) // intake with no matching key lands here
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  integrationKeys String[] // "meta:ig:paid", "sheet:Instagram Paid Media", "web:form"
+  leads           Lead[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Product {
+  id             String     @id @default(cuid())
+  name           String     @unique
+  isActive       Boolean    @default(true)
+  sortOrder      Int        @default(0)
+  metaAnswerKeys String[] // "elementra_kitchens"
+  leads          Lead[]     @relation("LeadProducts")
+  pipelines      Pipeline[] @relation("PipelineAutoProducts")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  scope       DataScope
+  permissions String[] // keys from lib/auth/permissions.ts
+  isSystem    Boolean   @default(false) // seeded; can't be deleted
+  isLocked    Boolean   @default(false) // Super Admin: scope and permissions can't change
+  users       User[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// ==========================================
 // CRM MODELS
 // ==========================================
 
@@ -369,7 +420,8 @@ model Branch {
   isActive           Boolean            @default(true)
   createdAt          DateTime           @default(now())
 
-  users        User[]
+  users        User[]          @relation("UserHomeBranch")
+  extraUsers   User[]          @relation("UserExtraBranches")
   pincodeRules BranchPincode[]
   leads        Lead[]
   appointments Appointment[]
@@ -378,11 +430,11 @@ model Branch {
 
 // Explicit "this pincode belongs to this branch" — wins over distance
 model BranchPincode {
-  id       String @id @default(cuid())
-  pincode  String @unique
+  id       String  @id @default(cuid())
+  pincode  String  @unique
   label    String?
   branchId String
-  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch   Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
 
 // Local gazetteer (augmented by Google later)
@@ -410,6 +462,8 @@ model Lead {
   firstName    String
   lastName     String?
   phoneE164    String? @db.VarChar(16)
+  // = phoneE164 while the lead is open, null once closed: the DB allows one open lead per phone number
+  openPhoneKey String? @unique @db.VarChar(16)
   altPhoneE164 String? @db.VarChar(16)
   email        String?
   language     String  @default("en")
@@ -434,22 +488,25 @@ model Lead {
   handedOverAt   DateTime?
   assignedAt     DateTime?
 
-  stage                  LeadStage   @default(NEW)
-  stageChangedAt         DateTime    @default(now())
-  lostReason             LostReason?
+  pipelineId             String
+  pipeline               Pipeline      @relation(fields: [pipelineId], references: [id])
+  stageId                String
+  stage                  PipelineStage @relation(fields: [stageId], references: [id])
+  stageChangedAt         DateTime      @default(now())
   lostNote               String?
   reviveAt               DateTime?
-  products               Product[]
-  priority               Priority    @default(WARM)
+  products               Product[]     @relation("LeadProducts")
+  priority               Priority      @default(WARM)
   possessionDate         DateTime?
   budgetNote             String?
   estimatedValueInr      Int?
   orderValueInr          Int?
   architectId            String?
-  architect              Contact?    @relation("LeadArchitect", fields: [architectId], references: [id], onDelete: SetNull)
+  architect              Contact?      @relation("LeadArchitect", fields: [architectId], references: [id], onDelete: SetNull)
   architectCommissionPct Float?
 
-  source        LeadSource
+  sourceId      String
+  source        Source        @relation(fields: [sourceId], references: [id])
   intakeChannel IntakeChannel
   campaignName  String?
   adsetName     String?
@@ -479,8 +536,9 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([ownerId, stage])
-  @@index([branchId, stage])
+  @@index([ownerId, stageId])
+  @@index([branchId, stageId])
+  @@index([pipelineId, stageId])
   @@index([locationStatus])
   @@index([nextFollowUpAt])
   @@index([phoneE164])

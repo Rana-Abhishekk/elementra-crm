@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requirePageRole } from "@/lib/access";
+import { requirePagePermission } from "@/lib/auth";
 import { parseReportFilters, reportsData } from "@/lib/data/reports";
 import { Card, CardHeader, PageHeader } from "@/components/ui";
 import { HBars } from "@/components/charts";
@@ -9,7 +9,7 @@ import { formatINR, formatLakh } from "@/lib/domain/money";
 import { shortBranch } from "@/lib/domain/routing/decide";
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  const user = await requirePageRole("OWNER", "ADMIN", "SALES_MANAGER");
+  const user = await requirePagePermission("reports.view");
   const sp = await searchParams;
   const f = parseReportFilters(sp);
   const [d, branches] = await Promise.all([reportsData(user, f), prisma.branch.findMany({ where: { kind: "EXPERIENCE_CENTRE" }, orderBy: { name: "asc" } })]);
@@ -36,7 +36,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <span className="label">To</span>
           <input type="date" name="to" defaultValue={f.toStr} className="field" />
         </label>
-        {user.role !== "SALES_MANAGER" && (
+        {user.scope === "ALL" && (
           <label className="text-sm">
             <span className="label">Branch</span>
             <select name="branch" defaultValue={f.branchId ?? ""} className="field">

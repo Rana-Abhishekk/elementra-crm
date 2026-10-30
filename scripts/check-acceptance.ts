@@ -83,15 +83,20 @@ async function main() {
   check("10. My Day: call + follow-up tomorrow", !!moved && moved.dueAt > new Date());
 
   // 11. Pipeline: forward to Quotation Sent; another to Lost – On hold with revive date
-  const q = await prisma.lead.findFirstOrThrow({ where: { ownerId: arjun.id, stage: { in: ["QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED"] } } });
-  const toQuote = await changeStage(q.id, "QUOTATION_SENT", { actorId: arjun.id, canReopen: false });
-  const n = await prisma.lead.findFirstOrThrow({ where: { ownerId: arjun.id, stage: "NEGOTIATION" } });
-  const hold = await changeStage(n.id, "CLOSED_LOST", { actorId: arjun.id, canReopen: false, lostReason: "ON_HOLD" });
+  const key = (k: string) => ({ systemKey: k, pipeline: { isDefault: true } });
+  const stageId = async (k: string) => (await prisma.pipelineStage.findFirstOrThrow({ where: key(k) })).id;
+  const q = await prisma.lead.findFirstOrThrow({ where: { ownerId: arjun.id, stage: { systemKey: { in: ["QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED"] }, pipeline: { isDefault: true } } } });
+  const toQuote = await changeStage(q.id, await stageId("QUOTATION_SENT"), { actorId: arjun.id, canReopen: false });
+  const n = await prisma.lead.findFirstOrThrow({ where: { ownerId: arjun.id, stage: key("NEGOTIATION") } });
+  const hold = await changeStage(n.id, await stageId("LOST_ON_HOLD"), { actorId: arjun.id, canReopen: false });
   const held = await prisma.lead.findUniqueOrThrow({ where: { id: n.id } });
   check("11. Pipeline moves", toQuote.ok && hold.ok && !!held.reviveAt);
 
-  // 12. Visit tomorrow 11:00 → reminder in the outbox
-  const appt = await prisma.appointment.create({ data: { leadId: q.id, branchId: q.branchId!, hostId: arjun.id, scheduledAt: wallTime(new Date(), "11:00", "Asia/Kolkata", 1) } });
+  // 12. Visit inside the reminder window → reminder in the outbox. "Tomorrow 11:00" is more than 24 h away
+  // when the script runs before 11:00 IST, so use tomorrow 11:00 or 20 h from now, whichever is sooner.
+  const tomorrow11 = wallTime(new Date(), "11:00", "Asia/Kolkata", 1);
+  const visitAt = new Date(Math.min(tomorrow11.getTime(), Date.now() + 20 * 3600_000));
+  const appt = await prisma.appointment.create({ data: { leadId: q.id, branchId: q.branchId!, hostId: arjun.id, scheduledAt: visitAt } });
   await runReminderEngine();
   const reminder = await prisma.outboundMessage.findFirst({ where: { dedupeKey: `R4:${appt.id}` } });
   check("12. Visit reminder", !!reminder, reminder?.body.slice(0, 60));

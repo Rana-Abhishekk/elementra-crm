@@ -1,9 +1,8 @@
-// Lead queries. Every one applies leadWhereForUser() (spec §6.2).
-import type { LeadStage, LeadSource, LocationStatus, Prisma, Product } from "@prisma/client";
+// Lead queries. Every one applies the user's scope from lib/auth/scope.ts (06 §5.3).
+import type { LocationStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { leadWhereForUser } from "@/lib/access";
-import type { SessionUser } from "@/lib/auth";
-import { OPEN_STAGES } from "@/lib/domain/stages";
+import type { CurrentUser } from "@/lib/auth";
+import { leadWhere, userWhere, visibleBranchIds } from "@/lib/auth/scope";
 import { startOfIstDay } from "@/lib/domain/time";
 
 export const LEAD_VIEWS = [
@@ -20,11 +19,12 @@ export type LeadView = (typeof LEAD_VIEWS)[number]["key"];
 export interface LeadFilters {
   view?: LeadView;
   q?: string;
-  stage?: LeadStage[];
+  pipelineId?: string;
+  stage?: string[]; // stage ids
   branchId?: string;
   ownerId?: string;
-  source?: LeadSource;
-  product?: Product;
+  source?: string; // source id
+  product?: string; // product id
   locationStatus?: LocationStatus;
   followUp?: "overdue" | "today" | "none";
   from?: Date;
@@ -41,11 +41,12 @@ export function parseLeadFilters(sp: Record<string, string | string[] | undefine
   return {
     view: (one(sp.view) as LeadView) ?? undefined,
     q: one(sp.q),
-    stage: stage as LeadStage[] | undefined,
+    pipelineId: one(sp.pipeline),
+    stage,
     branchId: one(sp.branch),
     ownerId: one(sp.owner),
-    source: one(sp.source) as LeadSource | undefined,
-    product: one(sp.product) as Product | undefined,
+    source: one(sp.source),
+    product: one(sp.product),
     locationStatus: one(sp.location) as LocationStatus | undefined,
     followUp: one(sp.followUp) as LeadFilters["followUp"],
     from: from ? new Date(`${from}T00:00:00+05:30`) : undefined,
@@ -54,11 +55,14 @@ export function parseLeadFilters(sp: Record<string, string | string[] | undefine
   };
 }
 
-export function leadWhere(user: SessionUser, f: LeadFilters, now = new Date()): Prisma.LeadWhereInput {
-  const and: Prisma.LeadWhereInput[] = [leadWhereForUser(user)];
+type ScopeUser = Pick<CurrentUser, "id" | "scope" | "branchIds" | "permissions">;
+
+export function leadFilterWhere(user: ScopeUser, f: LeadFilters, now = new Date()): Prisma.LeadWhereInput {
+  const and: Prisma.LeadWhereInput[] = [leadWhere(user)];
   const todayStart = startOfIstDay(now);
   const tomorrowStart = startOfIstDay(now, 1);
-  const open = { stage: { in: OPEN_STAGES } };
+  const open: Prisma.LeadWhereInput = { stage: { category: "OPEN" } };
+  const ownOnly = user.scope === "OWN";
 
   switch (f.view) {
     case "my":
@@ -66,11 +70,11 @@ export function leadWhere(user: SessionUser, f: LeadFilters, now = new Date()): 
       break;
     case "today":
       and.push(open, { nextFollowUpAt: { gte: todayStart, lt: tomorrowStart } });
-      if (user.role === "SALES_REP" || user.role === "PRESALES") and.push({ ownerId: user.id });
+      if (ownOnly) and.push({ ownerId: user.id });
       break;
     case "overdue":
       and.push(open, { nextFollowUpAt: { lt: now } });
-      if (user.role === "SALES_REP" || user.role === "PRESALES") and.push({ ownerId: user.id });
+      if (ownOnly) and.push({ ownerId: user.id });
       break;
     case "needs-location":
       and.push(open, { locationStatus: "NEEDS_LOCATION" });
@@ -101,11 +105,12 @@ export function leadWhere(user: SessionUser, f: LeadFilters, now = new Date()): 
     if (ref) or.push({ refCode: `EL-${ref[2]}` });
     and.push({ OR: or });
   }
-  if (f.stage?.length) and.push({ stage: { in: f.stage } });
+  if (f.pipelineId) and.push({ pipelineId: f.pipelineId });
+  if (f.stage?.length) and.push({ stageId: { in: f.stage } });
   if (f.branchId) and.push({ branchId: f.branchId });
   if (f.ownerId) and.push({ ownerId: f.ownerId === "none" ? null : f.ownerId });
-  if (f.source) and.push({ source: f.source });
-  if (f.product) and.push({ products: { has: f.product } });
+  if (f.source) and.push({ sourceId: f.source });
+  if (f.product) and.push({ products: { some: { id: f.product } } });
   if (f.locationStatus) and.push({ locationStatus: f.locationStatus });
   if (f.followUp === "overdue") and.push(open, { nextFollowUpAt: { lt: now } });
   if (f.followUp === "today") and.push(open, { nextFollowUpAt: { gte: todayStart, lt: tomorrowStart } });
@@ -122,10 +127,9 @@ export const leadListSelect = {
   lastName: true,
   phoneE164: true,
   siteAddressRaw: true,
-  stage: true,
-  lostReason: true,
-  products: true,
-  source: true,
+  stage: { select: { id: true, label: true, color: true, category: true, isActive: true } },
+  products: { select: { id: true, name: true, isActive: true }, orderBy: { sortOrder: "asc" } },
+  source: { select: { id: true, name: true, color: true, isActive: true } },
   priority: true,
   nextFollowUpAt: true,
   createdAt: true,
@@ -142,8 +146,8 @@ export const leadListSelect = {
 
 export type LeadListItem = Prisma.LeadGetPayload<{ select: typeof leadListSelect }>;
 
-export async function listLeads(user: SessionUser, f: LeadFilters, take = 200) {
-  const where = leadWhere(user, f);
+export async function listLeads(user: ScopeUser, f: LeadFilters, take = 200) {
+  const where = leadFilterWhere(user, f);
   const [items, total] = await Promise.all([
     prisma.lead.findMany({
       where,
@@ -156,18 +160,23 @@ export async function listLeads(user: SessionUser, f: LeadFilters, take = 200) {
   return { items, total };
 }
 
-export async function getLeadForUser(user: SessionUser, id: string) {
+/** null when the lead doesn't exist OR is outside the user's scope (the page answers 404 either way). */
+export async function getLeadForUser(user: ScopeUser, id: string) {
   return prisma.lead.findFirst({
-    where: { AND: [{ id }, leadWhereForUser(user)] },
+    where: { AND: [{ id }, leadWhere(user)] },
     include: {
+      stage: true,
+      pipeline: { select: { id: true, name: true } },
+      source: true,
+      products: { orderBy: { sortOrder: "asc" } },
       branch: true,
       owner: { select: { id: true, name: true, phone: true, branchId: true } },
       handedOverBy: { select: { name: true } },
       locality: true,
       contact: { select: { id: true, firstName: true, lastName: true } },
       architect: { select: { id: true, firstName: true, lastName: true, company: { select: { name: true } } } },
-      duplicateOf: { select: { id: true, refCode: true, stage: true, createdAt: true } },
-      duplicates: { select: { id: true, refCode: true, stage: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+      duplicateOf: { select: { id: true, refCode: true, stage: { select: { label: true, category: true } }, createdAt: true } },
+      duplicates: { select: { id: true, refCode: true, stage: { select: { label: true, category: true } }, createdAt: true }, orderBy: { createdAt: "desc" } },
       routingDecisions: { orderBy: { createdAt: "desc" }, take: 1 },
       activities: { orderBy: { createdAt: "desc" }, include: { user: { select: { name: true } } }, take: 200 },
       tasks: { where: { status: { in: ["OPEN", "SNOOZED"] } }, orderBy: { dueAt: "asc" }, include: { assignee: { select: { name: true } } } },
@@ -178,15 +187,17 @@ export async function getLeadForUser(user: SessionUser, id: string) {
   });
 }
 
-/** People a manager can assign to: everyone active, grouped by branch in the UI. */
-export async function assignableUsers() {
+/** Reassign targets: active people you can see who receive leads (06 §5.3), grouped by branch in the UI. */
+export async function assignableUsers(user: ScopeUser) {
   return prisma.user.findMany({
-    where: { isActive: true, role: { in: ["SALES_REP", "SALES_MANAGER", "PRESALES"] } },
-    select: { id: true, name: true, role: true, onLeave: true, branch: { select: { id: true, name: true } } },
+    where: { AND: [userWhere(user), { isActive: true, receivesLeads: true }] },
+    select: { id: true, name: true, onLeave: true, role: { select: { name: true } }, branch: { select: { id: true, name: true } } },
     orderBy: [{ branch: { name: "asc" } }, { name: "asc" }],
   });
 }
 
-export async function branchesList() {
-  return prisma.branch.findMany({ where: { isActive: true }, orderBy: [{ kind: "desc" }, { name: "asc" }] });
+/** Active branches the user can see (all for ALL scope). */
+export async function branchesList(user?: ScopeUser) {
+  const ids = user ? visibleBranchIds(user) : null;
+  return prisma.branch.findMany({ where: { isActive: true, ...(ids ? { id: { in: ids } } : {}) }, orderBy: [{ kind: "desc" }, { name: "asc" }] });
 }

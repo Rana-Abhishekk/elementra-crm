@@ -4,15 +4,7 @@ import { useActionState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { submitEnquiry, type EnquiryState } from "./actions";
 
-const PRODUCTS = [
-  ["KITCHEN", "Kitchen"],
-  ["WARDROBES", "Wardrobes"],
-  ["FURNITURE", "Furniture"],
-  ["APPLIANCES", "Appliances"],
-  ["BEDS", "Beds"],
-] as const;
-
-export function EnquiryForm() {
+export function EnquiryForm({ products }: { products: { id: string; name: string }[] }) {
   const [state, action, pending] = useActionState<EnquiryState, FormData>(submitEnquiry, { status: "idle" });
 
   if (state.status === "done") {
@@ -61,11 +53,11 @@ export function EnquiryForm() {
       <fieldset>
         <legend className="label">What are you looking for?</legend>
         <div className="flex flex-wrap gap-2">
-          {PRODUCTS.map(([value, label]) => (
-            <label key={value} className="cursor-pointer">
-              <input type="checkbox" name="products" value={value} className="peer sr-only" defaultChecked={value === "KITCHEN"} />
+          {products.map((p, i) => (
+            <label key={p.id} className="cursor-pointer">
+              <input type="checkbox" name="products" value={p.id} className="peer sr-only" defaultChecked={i === 0} />
               <span className="inline-block rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white">
-                {label}
+                {p.name}
               </span>
             </label>
           ))}

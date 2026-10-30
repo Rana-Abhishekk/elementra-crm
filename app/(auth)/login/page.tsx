@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { isDemoMode } from "@/lib/access";
+import { isDemoMode } from "@/lib/auth/guards";
 import { QUICK_LOGINS } from "@/lib/demo/reference";
 import { LoginForm } from "./login-form";
 

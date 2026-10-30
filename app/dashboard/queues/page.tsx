@@ -1,24 +1,31 @@
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { isManager, leadWhereForUser, requirePageRole } from "@/lib/access";
+import { can, requirePagePermission } from "@/lib/auth";
+import { leadWhere } from "@/lib/auth/scope";
 import { assignableUsers } from "@/lib/data/leads";
 import { EmptyState, PageHeader, Tabs } from "@/components/ui";
 import { SourceBadge } from "@/components/lead-badges";
 import { formatPhone } from "@/lib/domain/phone";
 import { relativeTime } from "@/lib/domain/time";
 import { JUST_OUTSIDE_KM, shortBranch, type Candidate } from "@/lib/domain/routing/decide";
-import { OPEN_STAGES } from "@/lib/domain/stages";
 import { CaptureLocation, OutOfAreaActions, AssignUnassigned } from "./queue-actions";
 
 type SP = Promise<{ tab?: string }>;
 
 export default async function QueuesPage({ searchParams }: { searchParams: SP }) {
-  const user = await requirePageRole("OWNER", "ADMIN", "SALES_MANAGER", "PRESALES");
-  const manager = isManager(user);
-  const tab = manager ? ((await searchParams).tab ?? "needs-location") : "needs-location";
-  const scope = leadWhereForUser(user);
-  const open = { stage: { in: OPEN_STAGES } };
+  const user = await requirePagePermission("queues.needsLocation", "queues.outOfArea", "leads.reassign");
+  // Each queue tab needs its own permission
+  const allowed = [
+    can(user, "queues.needsLocation") && "needs-location",
+    can(user, "queues.outOfArea") && "out-of-area",
+    can(user, "leads.reassign") && "unassigned",
+  ].filter(Boolean) as string[];
+  const requested = (await searchParams).tab;
+  const tab = requested && allowed.includes(requested) ? requested : allowed[0];
+  const manager = can(user, "queues.outOfArea");
+  const scope = leadWhere(user);
+  const open = { stage: { category: "OPEN" as const } };
 
   const [needs, outOfArea, unassigned] = await Promise.all([
     prisma.lead.count({ where: { AND: [scope, open, { locationStatus: "NEEDS_LOCATION" }] } }),
@@ -33,23 +40,22 @@ export default async function QueuesPage({ searchParams }: { searchParams: SP })
         : { locationStatus: "NEEDS_LOCATION" as const };
   const leads = await prisma.lead.findMany({
     where: { AND: [scope, open, where] },
-    include: { owner: { select: { name: true } }, branch: { select: { name: true } }, routingDecisions: { orderBy: { createdAt: "desc" }, take: 1 } },
+    include: { owner: { select: { name: true } }, branch: { select: { name: true } }, source: { select: { name: true, color: true, isActive: true } }, routingDecisions: { orderBy: { createdAt: "desc" }, take: 1 } },
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  const branches = manager ? await prisma.branch.findMany({ where: { kind: "EXPERIENCE_CENTRE", isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }) : [];
-  const people = tab === "unassigned" ? await assignableUsers() : [];
+  // Accept-for-branch targets: only branches the manager covers (all for ALL scope)
+  const branches = manager
+    ? await prisma.branch.findMany({ where: { kind: "EXPERIENCE_CENTRE", isActive: true, ...(user.scope === "ALL" ? {} : { id: { in: user.branchIds } }) }, orderBy: { name: "asc" }, select: { id: true, name: true } })
+    : [];
+  const people = tab === "unassigned" ? await assignableUsers(user) : [];
   const now = new Date();
 
   const tabs = [
     { key: "needs-location", label: `Needs location (${needs})`, href: "?tab=needs-location" },
-    ...(manager
-      ? [
-          { key: "out-of-area", label: `Out of area (${outOfArea})`, href: "?tab=out-of-area" },
-          { key: "unassigned", label: `Unassigned (${unassigned})`, href: "?tab=unassigned" },
-        ]
-      : []),
-  ];
+    { key: "out-of-area", label: `Out of area (${outOfArea})`, href: "?tab=out-of-area" },
+    { key: "unassigned", label: `Unassigned (${unassigned})`, href: "?tab=unassigned" },
+  ].filter((t) => allowed.includes(t.key));
 
   return (
     <div className="mx-auto max-w-5xl">

@@ -1,10 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { leadWhereForUser } from "@/lib/access";
+import { leadWhere } from "@/lib/auth/scope";
 import { FeatureBadge } from "@/components/feature-badge";
 import { PageHeader } from "@/components/ui";
 import { shortBranch } from "@/lib/domain/routing/decide";
-import { isOpenStage } from "@/lib/domain/stages";
 import { MapView } from "./map-view";
 
 // One colour per branch (validated categorical slots 1–4); names are always shown as labels too
@@ -15,8 +14,8 @@ export default async function MapPage() {
   const [branches, leads] = await Promise.all([
     prisma.branch.findMany({ where: { kind: "EXPERIENCE_CENTRE", isActive: true }, orderBy: { name: "asc" } }),
     prisma.lead.findMany({
-      where: { AND: [leadWhereForUser(user), { lat: { not: null } }] },
-      select: { id: true, refCode: true, firstName: true, lat: true, lng: true, stage: true, locationStatus: true, locality: { select: { name: true } }, branch: { select: { code: true } } },
+      where: { AND: [leadWhere(user), { lat: { not: null } }] },
+      select: { id: true, refCode: true, firstName: true, lat: true, lng: true, stage: { select: { category: true } }, locationStatus: true, locality: { select: { name: true } }, branch: { select: { code: true } } },
       orderBy: { createdAt: "desc" },
       take: 600,
     }),
@@ -38,7 +37,7 @@ export default async function MapPage() {
           lat: l.lat! + jitter(l.id, 0),
           lng: l.lng! + jitter(l.id, 4),
           label: `${l.refCode} · ${l.firstName} · ${l.locality?.name ?? ""}`,
-          group: l.locationStatus === "OUT_OF_AREA" ? "ooa" : l.stage === "CLOSED_WON" ? "won" : isOpenStage(l.stage) ? "open" : "lost",
+          group: l.locationStatus === "OUT_OF_AREA" ? "ooa" : l.stage.category === "WON" ? "won" : l.stage.category === "OPEN" ? "open" : "lost",
           branchCode: l.branch?.code ?? null,
         }))}
       />

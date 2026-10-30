@@ -6,8 +6,9 @@ export async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
-  // Signed-in users skip the login page
+  // Signed-in users skip the login page — except a deactivated user, who is sent here to be signed out
   if (pathname === "/login") {
+    if (req.nextUrl.searchParams.get("reason") === "deactivated") return NextResponse.next();
     return token ? NextResponse.redirect(new URL("/dashboard", req.url)) : NextResponse.next();
   }
 
@@ -21,5 +22,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login"],
+  matcher: ["/dashboard/:path*", "/account/:path*", "/login"],
 };

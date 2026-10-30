@@ -1,15 +1,19 @@
-import type { LeadSource, LeadStage, LostReason, Priority } from "@prisma/client";
+import type { Priority } from "@prisma/client";
 import { Chip } from "@/components/ui";
-import { PRIORITY_COLOR, PRIORITY_LABEL, SOURCE_LABEL } from "@/lib/domain/labels";
-import { STAGE_COLOR, STAGE_SHORT, stageLabel } from "@/lib/domain/stages";
+import { PRIORITY_COLOR, PRIORITY_LABEL } from "@/lib/domain/labels";
+import { chipStyle, shortLabel } from "@/lib/domain/stages";
 import { istDateKey, relativeTime } from "@/lib/domain/time";
-import { cn } from "@/lib/utils";
 
-export function StageBadge({ stage, lostReason, full }: { stage: LeadStage; lostReason?: LostReason | null; full?: boolean }) {
-  const label = full ? stageLabel(stage, lostReason) : stage === "CLOSED_LOST" && lostReason ? stageLabel(stage, lostReason).replace("Closed ", "") : STAGE_SHORT[stage];
+type StageLike = { label: string; color: string; isActive?: boolean };
+type SourceLike = { name: string; color: string; isActive?: boolean };
+
+/** Stage chip in the stage master's colour; inactive stages show greyed with "(inactive)". */
+export function StageBadge({ stage, full }: { stage: StageLike; full?: boolean }) {
+  const inactive = stage.isActive === false;
   return (
-    <Chip className={STAGE_COLOR[stage]} title={stageLabel(stage, lostReason)}>
-      {label}
+    <Chip className="" style={chipStyle(stage.color, inactive)} title={stage.label}>
+      {full ? stage.label : shortLabel(stage.label)}
+      {inactive ? " (inactive)" : ""}
     </Chip>
   );
 }
@@ -18,26 +22,29 @@ export function PriorityChip({ priority }: { priority: Priority }) {
   return <Chip className={PRIORITY_COLOR[priority]}>{PRIORITY_LABEL[priority]}</Chip>;
 }
 
-const SOURCE_STYLE: Record<LeadSource, [string, string]> = {
-  INSTAGRAM_PAID: ["IG", "bg-gradient-to-br from-fuchsia-500 to-orange-400 text-white"],
-  INSTAGRAM_ORGANIC: ["IG", "bg-gradient-to-br from-fuchsia-300 to-orange-200 text-fuchsia-900"],
-  FACEBOOK: ["FB", "bg-blue-600 text-white"],
-  GOOGLE: ["G", "bg-white text-blue-600 ring-1 ring-slate-200"],
-  WHATSAPP: ["WA", "bg-emerald-500 text-white"],
-  LINKEDIN: ["in", "bg-sky-700 text-white"],
-  REFERENCE: ["Ref", "bg-gold-light text-brand"],
-  REPEAT_PURCHASE: ["Rep", "bg-violet-100 text-violet-700"],
-  WALK_IN: ["Walk", "bg-slate-200 text-slate-700"],
-  CALL: ["Call", "bg-slate-200 text-slate-700"],
-  WEBSITE: ["Web", "bg-brand text-white"],
-};
+/** Short initials in the source's colour, e.g. "IG" for Instagram (Paid). */
+const initials = (name: string) =>
+  name
+    .replace(/\(.*?\)/g, "")
+    .split(/[\s/–-]+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 3)
+    .toUpperCase() || "?";
 
-export function SourceBadge({ source, withLabel }: { source: LeadSource; withLabel?: boolean }) {
-  const [abbr, cls] = SOURCE_STYLE[source];
+export function SourceBadge({ source, withLabel }: { source: SourceLike; withLabel?: boolean }) {
+  const inactive = source.isActive === false;
+  const label = `${source.name}${inactive ? " (inactive)" : ""}`;
   return (
-    <span className="inline-flex items-center gap-1.5" title={SOURCE_LABEL[source]}>
-      <span className={cn("inline-flex h-5 min-w-5 items-center justify-center rounded px-1 text-[10px] font-bold", cls)}>{abbr}</span>
-      {withLabel && <span className="text-sm">{SOURCE_LABEL[source]}</span>}
+    <span className="inline-flex items-center gap-1.5" title={label}>
+      <span
+        className="inline-flex h-5 min-w-5 items-center justify-center rounded px-1 text-[10px] font-bold text-white"
+        style={{ backgroundColor: inactive ? "#94A3B8" : source.color }}
+      >
+        {initials(source.name)}
+      </span>
+      {withLabel && <span className={inactive ? "text-sm text-slate-400" : "text-sm"}>{label}</span>}
     </span>
   );
 }

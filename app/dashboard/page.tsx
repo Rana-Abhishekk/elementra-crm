@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { isManager } from "@/lib/access";
 import { dashboardData, PERIODS, type Period } from "@/lib/data/dashboard";
 import { Card, CardHeader, PageHeader, Stat, Tabs } from "@/components/ui";
 import { DailyBars, HBars, VIZ } from "@/components/charts";
@@ -16,7 +15,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const period = (PERIODS.some((p) => p.key === sp.period) ? sp.period : "30d") as Period;
   const d = await dashboardData(user, period);
-  const manager = isManager(user);
+  const manager = user.scope !== "OWN";
   const now = new Date();
   const k = d.kpis;
 
@@ -27,7 +26,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       )}
       <PageHeader
         title={manager ? "Dashboard" : "My numbers"}
-        description={`As of ${formatIST(now, "EEE d MMM, h:mm a")} IST${user.role === "SALES_MANAGER" ? " · your branch" : ""}`}
+        description={`As of ${formatIST(now, "EEE d MMM, h:mm a")} IST${user.scope === "BRANCH" ? ` · your branch${user.branchIds.length > 1 ? "es" : ""}` : ""}`}
       />
       <Tabs active={period} tabs={PERIODS.map((p) => ({ key: p.key, label: p.label, href: `?period=${p.key}` }))} />
 

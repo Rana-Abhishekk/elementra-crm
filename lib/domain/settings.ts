@@ -12,8 +12,9 @@ export const settingsSchema = z.object({
     provider: z.enum(["LOCAL", "GOOGLE"]),
     fuzzyThreshold: z.number().min(0.5).max(1),
   }),
+  // One open lead per phone number is enforced by the database; windowDays = how far back a closed
+  // enquiry still marks the new lead as a returning customer.
   duplicates: z.object({
-    policy: z.enum(["LINK_SAME_OWNER", "WARN_ONLY"]),
     windowDays: z.number().int().min(1).max(3650),
   }),
   workingHours: z.object({
@@ -27,7 +28,6 @@ export const settingsSchema = z.object({
     escalateMins: z.number().int().min(1),
   }),
   reminders: z.object({
-    staleDays: z.record(z.string(), z.number().int().min(1)),
     appointmentHours: z.number().int().min(1),
     noResponseCalls: z.number().int().min(1),
     digestTime: hhmm,
@@ -50,19 +50,10 @@ export type SettingsKey = keyof Settings;
 export const DEFAULT_SETTINGS: Settings = {
   routing: { mode: "DIRECT", outOfAreaAction: "MANAGER_QUEUE", productRuleEnabled: false },
   geo: { provider: "LOCAL", fuzzyThreshold: 0.88 },
-  duplicates: { policy: "LINK_SAME_OWNER", windowDays: 180 },
+  duplicates: { windowDays: 180 },
   workingHours: { tz: "Asia/Kolkata", days: [0, 1, 2, 3, 4, 5, 6], open: "10:00", close: "19:30" },
   sla: { firstContactMins: 60, escalateMins: 240 },
   reminders: {
-    staleDays: {
-      CONTACTED: 3,
-      QUALIFIED: 3,
-      DISCOVERY_MEETING: 4,
-      QUOTATION_REQUESTED: 2,
-      QUOTATION_SENT: 3,
-      NEGOTIATION: 2,
-      TOKEN_RECEIVED: 5,
-    },
     appointmentHours: 24,
     noResponseCalls: 3,
     digestTime: "09:30",

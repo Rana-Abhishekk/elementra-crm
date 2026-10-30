@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { leadWhereForUser } from "@/lib/access";
+import { leadWhere } from "@/lib/auth/scope";
 import { Card, CardHeader, PageHeader } from "@/components/ui";
 import { StageBadge } from "@/components/lead-badges";
 import { formatPhone } from "@/lib/domain/phone";
@@ -15,10 +15,10 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
   const user = await requireUser();
   const c = await prisma.contact.findUnique({ where: { id }, include: { company: true } });
   if (!c) notFound();
-  const scope = leadWhereForUser(user);
+  const scope = leadWhere(user);
   const leads = await prisma.lead.findMany({
     where: { AND: [scope, c.kind === "ARCHITECT" ? { architectId: id } : { contactId: id }] },
-    include: { owner: { select: { name: true } } },
+    include: { owner: { select: { name: true } }, stage: { select: { label: true, color: true, isActive: true } } },
     orderBy: { createdAt: "desc" },
   });
   return (
@@ -44,7 +44,7 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
                 </div>
               </div>
               <span className="text-xs">{formatLakh(l.orderValueInr ?? l.estimatedValueInr)}</span>
-              <StageBadge stage={l.stage} lostReason={l.lostReason} />
+              <StageBadge stage={l.stage} />
             </Link>
           ))}
           {leads.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-500">No leads you can see are linked to this contact.</p>}
