@@ -28,7 +28,7 @@
 | F50 | Masters: Products | Live | Add products for leads, order them, Meta answer keys. Used by forms, /enquire, filters, reports and pipeline auto-selection. | Masters → Products. |  |
 | F51 | Masters: Branches | Live | Add / edit Experience Centres with a map pin, service radius, assignment style and pincode rules. Routing uses changes immediately. | Masters → Branches → Add branch (Thane) → Map → playground "Thane West". |  |
 | F52 | User management | Live | Create users with a role, home branch and extra branches, reports-to, temporary password (changed at first sign-in), deactivate with hand-over of open leads and tasks, last sign-in. | Masters → Users. |  |
-| F53 | Roles & permissions | Live | Super Admin (locked), Branch Manager, Sales Executive, Online Desk, Management Viewer + your own roles: data scope + 28 permission checkboxes, clone, "Preview as…". Nobody can grant more than they have; the last Super Admin is protected. | Masters → Roles & permissions → Preview as… Vikram. |  |
+| F53 | Roles & permissions | Live | Super Admin (locked), Branch Manager, Sales Executive, Online Desk, Management Viewer + your own roles: data scope + 29 permission checkboxes, clone, "Preview as…". Nobody can grant more than they have; the last Super Admin is protected. | Masters → Roles & permissions → Preview as… Vikram. |  |
 | F54 | Team performance (Super Admin sees every manager) | Live | Per branch and person: open leads, new this week, first call within SLA, overdue follow-ups, visits, won, last sign-in, actions today. | Insights → Team performance. |  |
 | F55 | Staging link for review | In progress | Deploy-ready for Vercel + Neon; steps in STAGING.md. |  | Needs the Vercel and Neon accounts (or access) to publish the link. |
 
