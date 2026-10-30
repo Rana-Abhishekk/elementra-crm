@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { DndContext, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -92,10 +93,37 @@ export function Kanban({
   }
 
   const now = new Date();
+  const board = useRef<HTMLDivElement>(null);
+  // Fit the board to the window so its horizontal scrollbar is always visible
+  const [boardHeight, setBoardHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const fit = () => {
+      const top = board.current?.getBoundingClientRect().top ?? 0;
+      setBoardHeight(Math.max(420, window.innerHeight - top - 16));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+  const scrollBy = (dir: -1 | 1) => board.current?.scrollBy({ left: dir * 560, behavior: "smooth" });
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="-mx-4 overflow-x-auto px-4 pb-4 md:mx-0 md:px-0">
-        <div className="flex w-max gap-3">
+    <DndContext id="kanban" sensors={sensors} onDragEnd={onDragEnd}>
+      <div className="mb-2 flex items-center justify-end gap-1">
+        <span className="mr-1 hidden text-xs text-slate-400 sm:inline">Scroll the board</span>
+        <button type="button" onClick={() => scrollBy(-1)} className="btn-secondary px-2 py-1" aria-label="Scroll left">
+          <ChevronLeft className="size-4" />
+        </button>
+        <button type="button" onClick={() => scrollBy(1)} className="btn-secondary px-2 py-1" aria-label="Scroll right">
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
+      {/* Fixed-height board: the horizontal scrollbar stays on screen; each column scrolls on its own */}
+      <div
+        ref={board}
+        style={boardHeight ? { height: boardHeight } : undefined}
+        className="scrollbar-board -mx-4 h-[calc(100vh-18rem)] min-h-[420px] overflow-x-auto overflow-y-hidden px-4 pb-3 md:mx-0 md:px-0"
+      >
+        <div className="flex h-full w-max gap-3">
           {[...columns, ...orphaned].map((stage) => {
             const col = cards.filter((c) => c.stageId === stage.id);
             const sum = col.reduce((s, c) => s + (c.value ?? 0), 0);
@@ -122,7 +150,7 @@ export function Kanban({
 function Column({ id, title, color, count, sum, children }: { id: string; title: string; color: string; count: number; sum: number; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <div ref={setNodeRef} className={cn("flex w-64 shrink-0 flex-col rounded-xl bg-slate-100/80 p-2", isOver && "bg-gold-light ring-2 ring-gold")}>
+    <div ref={setNodeRef} className={cn("flex h-full w-64 shrink-0 flex-col rounded-xl bg-slate-100/80 p-2", isOver && "bg-gold-light ring-2 ring-gold")}>
       <div className="border-t-2 px-1 pt-1 pb-2" style={{ borderColor: color }}>
         <div className="truncate text-xs font-semibold text-ink" title={title}>
           {title}
@@ -131,7 +159,7 @@ function Column({ id, title, color, count, sum, children }: { id: string; title:
           {count} · {sum ? formatLakh(sum) : "₹0"}
         </div>
       </div>
-      <div className="flex min-h-24 flex-col gap-2">{children}</div>
+      <div className="flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto pr-0.5">{children}</div>
     </div>
   );
 }

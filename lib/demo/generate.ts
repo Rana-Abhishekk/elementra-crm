@@ -534,7 +534,7 @@ async function shapeLiveState(rng: Rng, now: Date, wh: Parameters<typeof addWork
 
   // Out-of-area leads waiting in the queue get review tasks for the owner
   const ooa = await prisma.lead.findMany({ where: { locationStatus: "OUT_OF_AREA", stage: { category: "OPEN" } } });
-  await prisma.task.createMany({ data: ooa.map((l) => ({ leadId: l.id, assigneeId: ownerId, type: "OUT_OF_AREA_REVIEW" as const, title: `Out of area: ${l.firstName} — accept or regret`, dueAt: addWorkingMinutes(l.createdAt, 240, wh), createdAt: l.createdAt })) });
+  await prisma.task.createMany({ data: ooa.map((l) => ({ leadId: l.id, assigneeId: ownerId, type: "OUT_OF_AREA_REVIEW" as const, title: `Out of service area: ${l.firstName} — decide: serve from a branch or decline`, dueAt: addWorkingMinutes(l.createdAt, 240, wh), createdAt: l.createdAt })) });
 
   // ~6 visits in the next 3 days, one tomorrow 11:00 at Worli
   const candidates = open.filter((l) => ["QUALIFIED", "DISCOVERY_MEETING", "QUOTATION_REQUESTED"].includes(keyOf(l) ?? "") && l.branchId && l.locationStatus === "RESOLVED");

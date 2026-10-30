@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { X } from "lucide-react";
 import type { AssignmentStrategy, BranchKind } from "@prisma/client";
 import { Card, CardHeader } from "@/components/ui";
@@ -28,7 +29,7 @@ interface BranchData {
 
 export function BranchForm({ branch }: { branch: BranchData | null }) {
   const router = useRouter();
-  const { pending, run } = useServerAction();
+  const [pending, start] = useTransition();
   const [f, setF] = useState({
     code: branch?.code ?? "",
     name: branch?.name ?? "",
@@ -44,19 +45,15 @@ export function BranchForm({ branch }: { branch: BranchData | null }) {
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
   const num = (v: string) => (v.trim() === "" || Number.isNaN(Number(v)) ? null : Number(v));
 
+  // After saving, go back to the Branches list (the new branch is in it)
   function save() {
-    run(
-      () =>
-        saveBranchMasterAction(branch?.id ?? null, {
-          ...f,
-          lat: num(f.lat),
-          lng: num(f.lng),
-          serviceRadiusKm: Number(f.serviceRadiusKm) || 0,
-        }),
-      (res) => {
-        if (!branch && "id" in res && res.id) router.push(`/dashboard/masters/branches/${res.id}`);
-      },
-    );
+    start(async () => {
+      const res = await saveBranchMasterAction(branch?.id ?? null, { ...f, lat: num(f.lat), lng: num(f.lng), serviceRadiusKm: Number(f.serviceRadiusKm) || 0 });
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(branch ? `${f.name} saved` : `${f.name} created — routing uses it now. Open it to add pincode rules.`);
+      router.push("/dashboard/masters/branches");
+      router.refresh();
+    });
   }
 
   return (

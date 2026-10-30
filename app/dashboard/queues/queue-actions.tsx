@@ -41,17 +41,17 @@ export function OutOfAreaActions({ leadId, branches, defaultBranchId, hasPhone }
           ))}
         </select>
         <button className="btn shrink-0" disabled={pending || !branchId} onClick={() => run(() => acceptOutOfAreaAction(leadId, branchId))}>
-          Accept for branch
+          Serve from this branch
         </button>
       </div>
       <div className="flex gap-2">
         {hasPhone && (
           <button className="btn-secondary flex-1" disabled={pending} onClick={() => run(() => regretOutOfAreaAction(leadId, true))}>
-            Send regret & close
+            Decline politely (WhatsApp) & close
           </button>
         )}
         <button className="btn-ghost flex-1" disabled={pending} onClick={() => run(() => regretOutOfAreaAction(leadId, false))}>
-          Close as Lost
+          Close without message
         </button>
       </div>
     </div>

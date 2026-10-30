@@ -51,3 +51,18 @@
   max-width: none !important;
   max-height: none !important;
 }
+
+/* Scrollbars: thin, transparent track (no white border / background) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+/* Navy sidebar */
+.scrollbar-dark {
+  scrollbar-color: rgb(255 255 255 / 0.22) transparent;
+}
+/* Kanban board: always-visible, easier-to-grab horizontal bar */
+.scrollbar-board {
+  scrollbar-width: auto;
+  scrollbar-color: #94a3b8 #e2e8f0;
+}

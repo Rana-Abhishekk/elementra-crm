@@ -50,6 +50,9 @@ function TaskItem({ t, overdue }: { t: TaskRow; overdue: boolean }) {
           <span className={overdue ? "font-medium text-rose-600" : ""}>{t.snoozed ? `Snoozed until ${friendlyIST(t.dueAt, now)}` : overdue ? `${relativeTime(t.dueAt, now).replace(" ago", "")} overdue` : friendlyIST(t.dueAt, now)}</span>
         </div>
         <div className="mt-0.5 font-medium text-ink">{t.title}</div>
+        {t.type === "OUT_OF_AREA_REVIEW" && (
+          <div className="mt-0.5 text-xs text-slate-500">This enquiry is outside your service area. Either take it on from a branch, or send the polite &ldquo;we don&apos;t serve your area yet&rdquo; message.</div>
+        )}
         {t.lead && (
           <Link href={`/dashboard/leads/${t.lead.id}`} className="text-xs text-slate-500 hover:underline">
             {t.lead.ref} · {t.lead.name}
@@ -66,6 +69,11 @@ function TaskItem({ t, overdue }: { t: TaskRow; overdue: boolean }) {
               <MessageCircle className="size-4" />
             </a>
           </>
+        )}
+        {t.type === "OUT_OF_AREA_REVIEW" && (
+          <Link href="/dashboard/queues?tab=out-of-area" className="btn px-3 py-2">
+            Decide
+          </Link>
         )}
         {t.lead && (
           <Link href={`/dashboard/leads/${t.lead.id}`} className="btn-secondary px-3 py-2" aria-label="Open lead">

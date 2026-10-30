@@ -65,7 +65,7 @@ export default async function QueuesPage({ searchParams }: { searchParams: SP })
           tab === "needs-location"
             ? "Leads without a usable site location. Call the customer, type the area or pincode — the lead is handed over to the right branch instantly."
             : tab === "out-of-area"
-              ? "Enquiries outside every branch's service radius. Accept for a branch, send a polite regret, or close."
+              ? "Enquiries outside every branch's service radius. Serve one from a branch anyway, decline politely on WhatsApp, or close it."
               : "Routed leads where nobody in the branch was available."
         }
       />

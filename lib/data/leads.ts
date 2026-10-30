@@ -87,24 +87,7 @@ export function leadFilterWhere(user: ScopeUser, f: LeadFilters, now = new Date(
       break;
   }
 
-  if (f.q) {
-    const q = f.q.trim();
-    const digits = q.replace(/\D/g, "");
-    const ref = q.toUpperCase().match(/^(EL-?)?(\d{3,})$/);
-    const or: Prisma.LeadWhereInput[] = [
-      { firstName: { contains: q, mode: "insensitive" } },
-      { lastName: { contains: q, mode: "insensitive" } },
-      { email: { contains: q, mode: "insensitive" } },
-      { siteAddressRaw: { contains: q, mode: "insensitive" } },
-    ];
-    if (q.includes(" ")) {
-      const [a, ...rest] = q.split(" ");
-      or.push({ AND: [{ firstName: { contains: a, mode: "insensitive" } }, { lastName: { contains: rest.join(" "), mode: "insensitive" } }] });
-    }
-    if (digits.length >= 4) or.push({ phoneE164: { contains: digits.slice(-10) } });
-    if (ref) or.push({ refCode: `EL-${ref[2]}` });
-    and.push({ OR: or });
-  }
+  if (f.q) and.push(leadSearchWhere(f.q));
   if (f.pipelineId) and.push({ pipelineId: f.pipelineId });
   if (f.stage?.length) and.push({ stageId: { in: f.stage } });
   if (f.branchId) and.push({ branchId: f.branchId });
@@ -118,6 +101,26 @@ export function leadFilterWhere(user: ScopeUser, f: LeadFilters, now = new Date(
   if (f.from || f.to) and.push({ createdAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } });
   if (f.returning) and.push({ isReturning: true });
   return { AND: and };
+}
+
+/** Free-text search: name, email, address, phone (last 10 digits) or EL-ref. Shared by Leads and Pipeline. */
+export function leadSearchWhere(raw: string): Prisma.LeadWhereInput {
+  const q = raw.trim();
+  const digits = q.replace(/\D/g, "");
+  const ref = q.toUpperCase().match(/^(EL-?)?(\d{3,})$/);
+  const or: Prisma.LeadWhereInput[] = [
+    { firstName: { contains: q, mode: "insensitive" } },
+    { lastName: { contains: q, mode: "insensitive" } },
+    { email: { contains: q, mode: "insensitive" } },
+    { siteAddressRaw: { contains: q, mode: "insensitive" } },
+  ];
+  if (q.includes(" ")) {
+    const [a, ...rest] = q.split(" ");
+    or.push({ AND: [{ firstName: { contains: a, mode: "insensitive" } }, { lastName: { contains: rest.join(" "), mode: "insensitive" } }] });
+  }
+  if (digits.length >= 4) or.push({ phoneE164: { contains: digits.slice(-10) } });
+  if (ref) or.push({ refCode: `EL-${ref[2]}` });
+  return { OR: or };
 }
 
 export const leadListSelect = {

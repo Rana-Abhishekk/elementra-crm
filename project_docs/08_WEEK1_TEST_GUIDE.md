@@ -235,7 +235,7 @@ Window A → **Masters → Branches**.
 | 12.4 | ☐ | Drop on **Won** → order value → save. | Deal + project created. |
 | 12.5 | ☐ | Appointments → mark a visit **Visited** on an early-stage lead. | Lead moves to **4. Discovery / Requirement Meeting**. |
 | 12.6 | ☐ | Automations → **Run now** (twice). | Second run: nothing new (idempotent). |
-| 12.7 | ☐ | Queues → Out of area → **Send regret & close** (or **Close as Lost**). | Lead closed as **14. Closed Lost – Others**; regret WhatsApp in the Inbox (simulator). |
+| 12.7 | ☐ | Queues → Out of area → **Decline politely (WhatsApp) & close** (or **Close without message**). | Lead closed as **14. Closed Lost – Others**; regret WhatsApp in the Inbox (simulator). |
 | 12.8 | ☐ | Imports → upload `prisma/fixtures/meta-leads-sample.csv` twice. | First: created; second: all duplicates. |
 | 12.9 | ☐ | `/enquire` on a phone-width window → submit. | Thank-you screen; lead appears and is routed. |
 | 12.10 | ☐ | Reports → CSV download; Leads → Export CSV. | Files download; export has a Pipeline and Status column. |

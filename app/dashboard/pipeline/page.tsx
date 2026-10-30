@@ -1,17 +1,16 @@
 import { cookies } from "next/headers";
-import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { can, requireUser } from "@/lib/auth";
 import { leadWhere } from "@/lib/auth/scope";
-import { assignableUsers, branchesList } from "@/lib/data/leads";
+import { assignableUsers, branchesList, leadSearchWhere } from "@/lib/data/leads";
 import { getMasters } from "@/lib/data/masters";
 import { PageHeader } from "@/components/ui";
 import { pipelineStages } from "@/lib/domain/stages";
 import { shortBranch } from "@/lib/domain/routing/decide";
 import { startOfIstDay } from "@/lib/domain/time";
 import { Kanban } from "./kanban";
-import { PipelineSwitcher } from "./pipeline-switcher";
+import { PipelineFilters } from "./pipeline-filters";
 
 type SP = Promise<Record<string, string | undefined>>;
 
@@ -32,6 +31,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: SP 
       sp.branch ? { branchId: sp.branch } : {},
       sp.owner ? { ownerId: sp.owner } : {},
       sp.product ? { products: { some: { id: sp.product } } } : {},
+      sp.q?.trim() ? leadSearchWhere(sp.q) : {},
     ],
   };
   const since = startOfIstDay(new Date(), -30);
@@ -69,50 +69,15 @@ export default async function PipelinePage({ searchParams }: { searchParams: SP 
       <PageHeader
         title="Pipeline"
         description={`${pipeline.name}: ${openCount} open stages, set by your admin. Drag a card to move it; dropping on Lost asks for the reason.`}
-        actions={
-          <form className="flex flex-wrap gap-2">
-            {pipelines.length > 1 && <PipelineSwitcher value={pipeline.id} pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />}
-            <input type="hidden" name="pipeline" value={pipeline.id} />
-            {seesOthers && (
-              <select name="branch" defaultValue={sp.branch ?? ""} className="field w-auto py-1.5">
-                <option value="">All branches</option>
-                {branches
-                  .filter((b) => b.kind === "EXPERIENCE_CENTRE")
-                  .map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {shortBranch(b.name)}
-                    </option>
-                  ))}
-              </select>
-            )}
-            {seesOthers && (
-              <select name="owner" defaultValue={sp.owner ?? ""} className="field w-auto py-1.5">
-                <option value="">Everyone</option>
-                {people.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <select name="product" defaultValue={sp.product ?? ""} className="field w-auto py-1.5">
-              <option value="">All products</option>
-              {masters.products
-                .filter((p) => p.isActive)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-            <button className="btn-secondary py-1.5">Filter</button>
-            {can(user, "pipelines.manage") && (
-              <Link href={`/dashboard/masters/pipelines?id=${pipeline.id}`} className="btn-ghost py-1.5">
-                Edit stages
-              </Link>
-            )}
-          </form>
-        }
+      />
+      <PipelineFilters
+        pipelineId={pipeline.id}
+        pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))}
+        branches={branches.filter((b) => b.kind === "EXPERIENCE_CENTRE").map((b) => ({ id: b.id, name: shortBranch(b.name) }))}
+        people={people.map((p) => ({ id: p.id, name: p.name }))}
+        products={masters.products.filter((p) => p.isActive).map((p) => ({ id: p.id, name: p.name }))}
+        seesOthers={seesOthers}
+        editHref={can(user, "pipelines.manage") ? `/dashboard/masters/pipelines?id=${pipeline.id}` : undefined}
       />
       <Kanban
         leads={leads.map((l) => ({

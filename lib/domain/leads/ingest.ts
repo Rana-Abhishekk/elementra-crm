@@ -428,7 +428,7 @@ export async function ingestLead(
             leadId: created.id,
             assigneeId: uid,
             type: "OUT_OF_AREA_REVIEW" as const,
-            title: `Out of area: ${firstName} (${loc.locality?.name ?? loc.label ?? "unknown"}${dist}) — accept or regret`,
+            title: `Out of service area: ${firstName} (${loc.locality?.name ?? loc.label ?? "unknown place"}${dist}) — decide: serve from a branch or decline`,
             dueAt: addWorkingMinutes(receivedAt, settings.sla.escalateMins, wh),
             dedupeKey: `OOA:${created.id}:${uid}`,
             createdAt: receivedAt,
