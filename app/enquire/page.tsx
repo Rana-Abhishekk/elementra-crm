@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 export default async function EnquirePage() {
   const products = await prisma.product.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true } });
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="bg-brand px-4 pt-10 pb-24 text-center text-white">
+    <main className="min-h-screen bg-canvas">
+      <header className="bg-sidebar px-4 pt-10 pb-24 text-center text-white">
         <div className="text-2xl font-semibold tracking-[0.3em]">ELEMENTRA</div>
         <div className="mt-1 text-xs tracking-widest text-gold uppercase">Bespoke kitchens · wardrobes · furniture</div>
         <p className="mx-auto mt-6 max-w-md text-sm text-white/80">

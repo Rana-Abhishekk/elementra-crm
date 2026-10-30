@@ -37,7 +37,7 @@ export function Card({ className, children, ...rest }: React.HTMLAttributes<HTML
 
 export function CardHeader({ title, action, className }: { title: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3", className)}>
+    <div className={cn("flex items-center justify-between gap-2 px-4 pt-3.5 pb-2", className)}>
       <h2 className="text-sm font-semibold text-ink">{title}</h2>
       {action}
     </div>
@@ -84,10 +84,10 @@ export function PageSkeleton() {
   );
 }
 
-export function Tabs({ tabs, active }: { tabs: { key: string; label: React.ReactNode; href: string }[]; active: string }) {
+export function Tabs({ tabs, active, className }: { tabs: { key: string; label: React.ReactNode; href: string }[]; active: string; className?: string }) {
   return (
-    <div className="-mx-4 mb-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-      <div className="flex w-max gap-1 rounded-lg bg-slate-100 p-1">
+    <div className={cn("-mx-4 mb-4 overflow-x-auto px-4 md:mx-0 md:px-0", className)}>
+      <div className="flex w-max gap-1 rounded-lg bg-slate-200/60 p-1">
         {tabs.map((t) => (
           <Link
             key={t.key}
@@ -108,7 +108,7 @@ export function Tabs({ tabs, active }: { tabs: { key: string; label: React.React
 export function Stat({ label, value, hint, tone }: { label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: "red" | "amber" | "green" }) {
   return (
     <div className="card p-4">
-      <div className="text-xs font-medium tracking-wide text-slate-500 uppercase">{label}</div>
+      <div className="text-sm font-medium text-ink">{label}</div>
       <div
         className={cn(
           "mt-1 text-2xl font-semibold",

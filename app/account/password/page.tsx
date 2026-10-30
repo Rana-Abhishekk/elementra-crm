@@ -9,7 +9,7 @@ export default async function ForcedPasswordPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-brand px-4 py-10">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-sidebar px-4 py-10">
       <div className="mb-6 text-center">
         <div className="text-2xl font-semibold tracking-[0.3em] text-white">ELEMENTRA</div>
         <div className="mt-1 text-xs tracking-widest text-gold uppercase">Lead CRM</div>

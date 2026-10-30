@@ -12,13 +12,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b1f3a",
+  themeColor: "#17234a",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-IN" className={`h-full ${inter.variable}`} suppressHydrationWarning>
-      <body className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
+      <body className="min-h-screen bg-canvas font-sans text-slate-900 antialiased">
         <AuthProvider>{children}</AuthProvider>
         <Toaster richColors position="top-right" closeButton />
       </body>

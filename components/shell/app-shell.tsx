@@ -23,6 +23,15 @@ const MIN_WIDTH = 220;
 const MAX_WIDTH = 420;
 const RAIL_WIDTH = 72;
 
+// Each sidebar section gets its own icon colour
+const GROUP_TONE: Record<string, string> = {
+  Work: "text-sky-300",
+  Insights: "text-amber-300",
+  Customers: "text-emerald-300",
+  Masters: "text-fuchsia-300",
+  Admin: "text-slate-300",
+};
+
 const store = {
   get<T>(key: string, fallback: T): T {
     try {
@@ -87,6 +96,9 @@ export function AppShell({
 
   const isActive = (href: string) => (href === "/dashboard" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`));
 
+  const activeGroup = groups.find((g) => g.items.some((i) => isActive(i.href)));
+  const activeItem = activeGroup?.items.find((i) => isActive(i.href));
+
   const toggleGroup = (title: string) =>
     setClosedGroups((g) => {
       const next = { ...g, [title]: !g[title] };
@@ -127,22 +139,12 @@ export function AppShell({
 
   const sidebar = (compact: boolean) => (
     <div className="flex h-full flex-col">
-      <div className={cn("flex items-center py-5", compact ? "justify-center px-2" : "justify-between px-5")}>
-        <Link href="/dashboard" className="leading-tight" title="Elementra Lead CRM">
-          {compact ? (
-            <div className="flex size-10 items-center justify-center rounded-lg bg-white/10 text-lg font-semibold text-gold">E</div>
-          ) : (
-            <>
-              <div className="text-xl font-semibold tracking-[0.2em] text-white">ELEMENTRA</div>
-              <div className="text-xs tracking-wider text-gold uppercase">Lead CRM</div>
-            </>
-          )}
-        </Link>
-        <button className="text-white/70 md:hidden" onClick={() => setOpen(false)} aria-label="Close menu">
+      <div className="flex justify-end px-3 pt-3 md:hidden">
+        <button className="text-white/70" onClick={() => setOpen(false)} aria-label="Close menu">
           <X className="size-5" />
         </button>
       </div>
-      <nav className={cn("scrollbar-dark flex-1 overflow-y-auto pb-4", compact ? "space-y-3 px-2" : "space-y-1 px-3")}>
+      <nav className={cn("scrollbar-dark flex-1 overflow-y-auto pb-4", compact ? "space-y-3 px-2 pt-3" : "space-y-1 px-3 pt-3")}>
         {groups.map((g) => {
           // The group holding the current page always stays open
           const hasActive = g.items.some((i) => isActive(i.href));
@@ -167,12 +169,12 @@ export function AppShell({
                       href={href}
                       title={compact ? label : undefined}
                       className={cn(
-                        "flex items-center rounded-lg text-[15px]",
+                        "flex items-center rounded-md text-sm",
                         compact ? "justify-center p-2.5" : "gap-3 px-2.5 py-2.5",
-                        isActive(href) ? "bg-white/10 font-medium text-white" : "text-white/75 hover:bg-white/5 hover:text-white",
+                        isActive(href) ? "bg-brand font-medium text-white" : "text-white/80 hover:bg-white/5 hover:text-white",
                       )}
                     >
-                      <Icon className={cn("size-[18px] shrink-0", isActive(href) && "text-gold")} />
+                      <Icon className={cn("size-[18px] shrink-0", isActive(href) ? "text-white" : GROUP_TONE[g.title])} />
                       {!compact && <span className="truncate">{label}</span>}
                       {!compact && feature && <FeatureBadge feature={feature} className="ml-auto bg-white/10 text-[10px] text-white/80 ring-white/20" />}
                     </Link>
@@ -184,18 +186,6 @@ export function AppShell({
         })}
       </nav>
       <div className={cn("border-t border-white/10 py-3", compact ? "px-2" : "px-4")}>
-        {!compact && (
-          <Link href="/dashboard/account" className="mb-2 flex items-center gap-2.5 rounded-lg p-1.5 hover:bg-white/5">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gold text-sm font-semibold text-brand">{initials(user.name)}</span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium text-white">{user.name}</span>
-              <span className="block truncate text-xs text-white/50">
-                {user.roleName}
-                {user.branchName ? ` · ${user.branchName}` : ""}
-              </span>
-            </span>
-          </Link>
-        )}
         <div className={cn("flex items-center", compact ? "flex-col gap-2" : "justify-between")}>
           <button onClick={() => signOut({ callbackUrl: "/login" })} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm text-white/60 hover:text-white" title="Sign out">
             <LogOut className="size-4" /> {!compact && "Sign out"}
@@ -214,52 +204,74 @@ export function AppShell({
   );
 
   return (
-    <div className={cn("flex min-h-screen", resizing && "cursor-col-resize select-none")}>
-      <aside className="sticky top-0 hidden h-screen shrink-0 bg-brand md:block" style={{ width: rail ? RAIL_WIDTH : width }}>
-        {sidebar(rail)}
-        {!rail && (
-          <div
-            onPointerDown={startResize}
-            onDoubleClick={() => {
-              setWidth(DEFAULT_WIDTH);
-              store.set("sidebar.width", DEFAULT_WIDTH);
-            }}
-            className={cn("absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-gold/40", resizing && "bg-gold/60")}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Drag to resize the sidebar (double-click to reset)"
-            title="Drag to resize · double-click to reset"
-          />
-        )}
-      </aside>
-      {open && (
-        <div className="fixed inset-0 z-40 md:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-80 max-w-[85vw] bg-brand shadow-xl">{sidebar(false)}</aside>
-        </div>
-      )}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur md:px-6">
+    <div className={cn("flex min-h-screen flex-col", resizing && "cursor-col-resize select-none")}>
+      {/* 7rem tall: the sidebar and sticky page bars sit just under it */}
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
+        <div className="flex h-14 items-center gap-2 px-3 md:gap-6 md:px-5">
           <button className="btn-ghost px-2 md:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu className="size-5" />
           </button>
-          <form action="/dashboard/leads" className="relative min-w-0 flex-1 md:max-w-md">
+          <Link href="/dashboard" className="flex shrink-0 items-center gap-2.5" title="Elementra Lead CRM">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-brand text-base font-semibold text-white">E</span>
+            <span className="text-lg font-semibold text-ink">Elementra</span>
+          </Link>
+          <nav className="hidden min-w-0 items-center gap-1 overflow-hidden lg:flex" aria-label="Sections">
+            {groups.map((g) => (
+              <Link
+                key={g.title}
+                href={g.items[0].href}
+                className={cn("rounded-md px-3 py-1.5 text-sm whitespace-nowrap", g === activeGroup ? "bg-gold-light font-medium text-brand" : "text-slate-600 hover:bg-slate-100 hover:text-ink")}
+              >
+                {g.title}
+              </Link>
+            ))}
+          </nav>
+          <div className="ml-auto flex items-center gap-1 md:gap-2">
+            {bell}
+            <AccountMenu user={user} />
+          </div>
+        </div>
+        <div className="flex h-14 items-center gap-3 px-3 md:px-5">
+          {has("leads.create") && (
+            <Link href="/dashboard/leads/new" className="btn shrink-0 px-3 py-1.5">
+              <Plus className="size-4" />
+              <span className="hidden sm:inline">New lead</span>
+            </Link>
+          )}
+          <span className="hidden w-56 shrink-0 truncate text-lg text-ink md:block">{activeItem?.label}</span>
+          <form action="/dashboard/leads" className="relative min-w-0 flex-1 md:mx-auto md:max-w-xl">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-slate-400" />
             <input name="q" placeholder="Search name, phone or EL-ref…" className="field py-1.5 pl-8" aria-label="Search leads" />
           </form>
-          <div className="ml-auto flex items-center gap-1 md:gap-2">
-            {bell}
-            {has("leads.create") && (
-              <Link href="/dashboard/leads/new" className="btn px-3 py-1.5">
-                <Plus className="size-4" />
-                <span className="hidden sm:inline">New lead</span>
-              </Link>
-            )}
-            <AccountMenu user={user} />
-          </div>
-        </header>
-        <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
+          <span className="hidden w-56 shrink-0 xl:block" />
+        </div>
+      </header>
+      <div className="flex min-w-0 flex-1">
+        <aside className="sticky top-28 hidden h-[calc(100vh-7rem)] shrink-0 bg-sidebar md:block" style={{ width: rail ? RAIL_WIDTH : width }}>
+          {sidebar(rail)}
+          {!rail && (
+            <div
+              onPointerDown={startResize}
+              onDoubleClick={() => {
+                setWidth(DEFAULT_WIDTH);
+                store.set("sidebar.width", DEFAULT_WIDTH);
+              }}
+              className={cn("absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-gold/40", resizing && "bg-gold/60")}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Drag to resize the sidebar (double-click to reset)"
+              title="Drag to resize · double-click to reset"
+            />
+          )}
+        </aside>
+        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
+      {open && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 w-80 max-w-[85vw] bg-sidebar shadow-xl">{sidebar(false)}</aside>
+        </div>
+      )}
       {demoMode && has("demo.use") && !pathname.startsWith("/dashboard/demo") && (
         <Link
           href="/dashboard/demo"

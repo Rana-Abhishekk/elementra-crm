@@ -121,7 +121,7 @@ export function Kanban({
       <div
         ref={board}
         style={boardHeight ? { height: boardHeight } : undefined}
-        className="scrollbar-board -mx-4 h-[calc(100vh-18rem)] min-h-[420px] overflow-x-auto overflow-y-hidden px-4 pb-3 md:mx-0 md:px-0"
+        className="scrollbar-board -mx-4 h-[calc(100vh-21.5rem)] min-h-[420px] overflow-x-auto overflow-y-hidden px-4 pb-3 md:mx-0 md:px-0"
       >
         <div className="flex h-full w-max gap-3">
           {[...columns, ...orphaned].map((stage) => {
