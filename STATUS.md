@@ -4,30 +4,38 @@
 
 | Status | Count |
 |---|---|
-| Live | 33 |
+| Live | 40 |
 | Simulator | 2 |
 | Preview | 2 |
-| In progress | 8 |
-| Planned | 2 |
+| In progress | 9 |
+| Planned | 4 |
 
-## Week 1 — Foundation
+## Week 1 — CRM Foundation
 
 | ID | Feature | Status | Notes | How to demo | Known gaps |
 |---|---|---|---|---|---|
-| F1 | Login, roles, role-scoped data | Live | 5 roles: Owner, Admin, Sales manager, Online Desk, Sales rep. Each sees only their leads. | Use the quick-login chips on the login page. |  |
+| F1 | Secure login + branch-based data visibility | Live | Each role sees Own / Branch / All. Worli's manager never sees Pune; executives see only their own leads; Super Admin sees everything. Out-of-scope lead links answer "not found". Role changes and deactivation apply on the next click. | Quick-login as Worli Manager, Regional Mgr (Vikram) and Andheri Exec and compare the Leads list. |  |
 | F35 | Contacts, companies, deals wired to leads; architects as partners | Live | Every lead links to a customer contact. Architect firms show leads influenced and won value. Won leads create a deal. | Contacts → Architects filter; Companies → Architect firms. |  |
 | F2 | Lead capture: manual form | Live | + New lead from the top bar. Routed and assigned on save. | Top bar → + New lead. |  |
 | F14 | Leads list: filters, search, saved views, bulk reassign | Live | Views: My open, Due today, Overdue, Needs location, Out of area, Returning, All. Cards on phones. | Leads. |  |
 | F15 | Lead detail: timeline, quick actions, stages, lost reasons | Live | Call / WhatsApp buttons, notes, call outcomes, stage changes, lost reasons with revive date, re-run routing. | Open any lead. |  |
-| F16 | Pipeline kanban with your 14 stages | Live | Drag and drop; dropping on Lost asks for the reason. | Pipeline. |  |
+| F16 | Pipeline kanban with your 14 stages | Live | Columns come from Masters → Pipelines & Statuses. Pipeline switcher; drag and drop; Won / Lost open a stage picker. | Pipeline. |  |
 | F20 | My Day: overdue / today / upcoming tasks | Live | Done, snooze, call and WhatsApp from one list. | Log in as Andheri rep → My Day. |  |
 | F21 | Showroom appointments + reminders | Live | Book a visit, mark visited / no-show; reminder WhatsApp goes 24 h before. | Lead → Book showroom visit → Appointments. |  |
+| F7 | Phone number as the customer key (no duplicate entries) | Live | Normalised phone (+91…) is unique per customer, and the database allows only one open lead per number. Repeat enquiries are added to the open lead; the New lead form sends you to it. A closed customer coming back gets a new lead marked Returning. | Demo panel → Returning customer; or + New lead with an existing number. |  |
+| F48 | Masters: Pipelines & Statuses | Live | Admin renames headings, reorders, adds stages (columns), sets colours, Won / Lost, revive date, stale-day nudges. Several pipelines; Turnkey / Full Home is picked automatically by product. Stages holding leads are merged, never deleted. | Masters → Pipelines & Statuses → rename "3. Lead Qualified" → open Pipeline. |  |
+| F49 | Masters: Sources | Live | Add sources (e.g. Housing.com), colours, paid flag, integration keys that map Meta / sheet / website values. Deactivate or merge; unmapped values land on "Other" with a warning. | Masters → Sources → Add source. |  |
+| F50 | Masters: Products | Live | Add products for leads, order them, Meta answer keys. Used by forms, /enquire, filters, reports and pipeline auto-selection. | Masters → Products. |  |
+| F51 | Masters: Branches | Live | Add / edit Experience Centres with a map pin, service radius, assignment style and pincode rules. Routing uses changes immediately. | Masters → Branches → Add branch (Thane) → Map → playground "Thane West". |  |
+| F52 | User management | Live | Create users with a role, home branch and extra branches, reports-to, temporary password (changed at first sign-in), deactivate with hand-over of open leads and tasks, last sign-in. | Masters → Users. |  |
+| F53 | Roles & permissions | Live | Super Admin (locked), Branch Manager, Sales Executive, Online Desk, Management Viewer + your own roles: data scope + 28 permission checkboxes, clone, "Preview as…". Nobody can grant more than they have; the last Super Admin is protected. | Masters → Roles & permissions → Preview as… Vikram. |  |
+| F54 | Team performance (Super Admin sees every manager) | Live | Per branch and person: open leads, new this week, first call within SLA, overdue follow-ups, visits, won, last sign-in, actions today. | Insights → Team performance. |  |
+| F55 | Staging link for review | In progress | Deploy-ready for Vercel + Neon; steps in STAGING.md. |  | Needs the Vercel and Neon accounts (or access) to publish the link. |
 
-## Week 2 — The brain
+## Week 2 — Lead Logic & Chatbot
 
 | ID | Feature | Status | Notes | How to demo | Known gaps |
 |---|---|---|---|---|---|
-| F7 | Phone normalisation + duplicate / returning-customer detection | Live | Handles 91…, +91, spaces, two numbers in one cell, p: prefix. Repeat enquiries go to the same owner. | Demo panel → Returning customer. |  |
 | F8 | Area check: pincode rules + locality map + spelling-tolerant matching | Live | ~90 Mumbai / Thane / Navi Mumbai / Pune localities. Understands "Borivalli", "Goregoan", "Kandiwali". | Map → Routing playground → "kandiwali east". |  |
 | F9 | Area check: Google Maps geocoding | In progress | Provider coded and switched off. Turns on when your Google Cloud key is added. |  | Needs the client's Google Cloud API key. |
 | F10 | Auto-routing to branch + "Why this branch" card | Live | Pincode rules win over distance; otherwise the nearest Experience Centre within its radius. | Demo panel → any scenario → open the lead. |  |
@@ -35,8 +43,11 @@
 | F12 | Needs-location queue → automatic handover | Live | The Online Desk types the area; the lead is handed over to the right branch instantly. | Queues → Needs location. |  |
 | F13 | Out-of-area queue: accept / regret / close | Live | Managers see the distance to the nearest branch and decide in one click. | Queues → Out of area. |  |
 | F28 | Routing playground | Live | Type any address → see the branch and the next rep. Dry run, nothing saved. | Map → playground. |  |
+| F39 | Lead qualification score, auto-priority and qualification gate | In progress | Manual Hot / Warm / Cold works today. Stages already carry the "needs qualification" flag; scoring and the gate are Week 2. |  |  |
+| F56 | Rule-based chatbot (website + WhatsApp) | Planned | Questions from the Online Desk script, creates and routes the lead. Week 2. |  |  |
+| F57 | Masters: Areas & Pincodes, Other lists (budget, possession, property type, BHK) | Planned | Comes with qualification in Week 2. Routing already uses the ~90-locality map and branch pincode rules. |  |  |
 
-## Week 3 — The pipes
+## Week 3 — Integrations
 
 | ID | Feature | Status | Notes | How to demo | Known gaps |
 |---|---|---|---|---|---|
@@ -48,7 +59,7 @@
 | F6 | Google Sheets live sync | In progress | "Simulate new sheet row" shows the flow. |  | Needs access to your Google Sheet. |
 | F33 | Integrations page with honest statuses | Live | Meta, WhatsApp, Google Maps, Sheets, Website — what's ready and what we need from you. |  |  |
 
-## Week 4 — The robot
+## Week 4 — Automation & Testing
 
 | ID | Feature | Status | Notes | How to demo | Known gaps |
 |---|---|---|---|---|---|
@@ -67,12 +78,11 @@
 | F27 | Map view (OpenStreetMap) | Preview | Branches, service radius and lead pins. |  | Google Maps switches on with your API key. |
 | F24 | WhatsApp two-way team inbox | In progress | Conversation view with simulated customer replies. |  | Needs the WhatsApp Business API connection. |
 | F46 | WhatsApp broadcasts to segments | In progress | Segment picker and audience preview; sending is disabled. |  |  |
-| F39 | Lead scoring / auto-priority | In progress | Manual Hot / Warm / Cold works today. |  |  |
 | F40 | Product-based assignment rule | In progress | Toggle visible in Settings, disabled. |  |  |
 | F42 | Demo control panel | Live | Scenario buttons, run reminders, reset demo data. Demo mode only. |  |  |
 | F43 | Build Status page | Live | This page. |  |  |
 
-## Week 5 — Go-live
+## Week 5 — UAT, Training & Go-Live
 
 | ID | Feature | Status | Notes | How to demo | Known gaps |
 |---|---|---|---|---|---|

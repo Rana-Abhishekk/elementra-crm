@@ -49,24 +49,25 @@ export const STATUS_META: Record<FeatureStatus, { label: string; badge: string; 
 };
 
 export const WEEK_LABEL: Record<FeatureWeek, string> = {
-  W1: "Week 1 — Foundation",
-  W2: "Week 2 — The brain",
-  W3: "Week 3 — The pipes",
-  W4: "Week 4 — The robot",
-  W5: "Week 5 — Go-live",
+  // The client's delivery timeline
+  W1: "Week 1 — CRM Foundation",
+  W2: "Week 2 — Lead Logic & Chatbot",
+  W3: "Week 3 — Integrations",
+  W4: "Week 4 — Automation & Testing",
+  W5: "Week 5 — UAT, Training & Go-Live",
   BEYOND: "Beyond the launch package",
 };
 
 export const FEATURES: Feature[] = [
-  { id: "F1", title: "Login, roles, role-scoped data", status: "LIVE", week: "W1", note: "5 roles: Owner, Admin, Sales manager, Online Desk, Sales rep. Each sees only their leads.", demo: "Use the quick-login chips on the login page." },
+  { id: "F1", title: "Secure login + branch-based data visibility", status: "LIVE", week: "W1", note: "Each role sees Own / Branch / All. Worli's manager never sees Pune; executives see only their own leads; Super Admin sees everything. Out-of-scope lead links answer \"not found\". Role changes and deactivation apply on the next click.", demo: "Quick-login as Worli Manager, Regional Mgr (Vikram) and Andheri Exec and compare the Leads list." },
   { id: "F35", title: "Contacts, companies, deals wired to leads; architects as partners", status: "LIVE", week: "W1", note: "Every lead links to a customer contact. Architect firms show leads influenced and won value. Won leads create a deal.", demo: "Contacts → Architects filter; Companies → Architect firms." },
   { id: "F2", title: "Lead capture: manual form", status: "LIVE", week: "W1", note: "+ New lead from the top bar. Routed and assigned on save.", demo: "Top bar → + New lead." },
   { id: "F14", title: "Leads list: filters, search, saved views, bulk reassign", status: "LIVE", week: "W1", note: "Views: My open, Due today, Overdue, Needs location, Out of area, Returning, All. Cards on phones.", demo: "Leads." },
   { id: "F15", title: "Lead detail: timeline, quick actions, stages, lost reasons", status: "LIVE", week: "W1", note: "Call / WhatsApp buttons, notes, call outcomes, stage changes, lost reasons with revive date, re-run routing.", demo: "Open any lead." },
-  { id: "F16", title: "Pipeline kanban with your 14 stages", status: "LIVE", week: "W1", note: "Drag and drop; dropping on Lost asks for the reason.", demo: "Pipeline." },
+  { id: "F16", title: "Pipeline kanban with your 14 stages", status: "LIVE", week: "W1", note: "Columns come from Masters → Pipelines & Statuses. Pipeline switcher; drag and drop; Won / Lost open a stage picker.", demo: "Pipeline." },
   { id: "F20", title: "My Day: overdue / today / upcoming tasks", status: "LIVE", week: "W1", note: "Done, snooze, call and WhatsApp from one list.", demo: "Log in as Andheri rep → My Day." },
   { id: "F21", title: "Showroom appointments + reminders", status: "LIVE", week: "W1", note: "Book a visit, mark visited / no-show; reminder WhatsApp goes 24 h before.", demo: "Lead → Book showroom visit → Appointments." },
-  { id: "F7", title: "Phone normalisation + duplicate / returning-customer detection", status: "LIVE", week: "W2", note: "Handles 91…, +91, spaces, two numbers in one cell, p: prefix. Repeat enquiries go to the same owner.", demo: "Demo panel → Returning customer." },
+  { id: "F7", title: "Phone number as the customer key (no duplicate entries)", status: "LIVE", week: "W1", note: "Normalised phone (+91…) is unique per customer, and the database allows only one open lead per number. Repeat enquiries are added to the open lead; the New lead form sends you to it. A closed customer coming back gets a new lead marked Returning.", demo: "Demo panel → Returning customer; or + New lead with an existing number." },
   { id: "F8", title: "Area check: pincode rules + locality map + spelling-tolerant matching", status: "LIVE", week: "W2", note: "~90 Mumbai / Thane / Navi Mumbai / Pune localities. Understands \"Borivalli\", \"Goregoan\", \"Kandiwali\".", demo: "Map → Routing playground → \"kandiwali east\"." },
   { id: "F9", title: "Area check: Google Maps geocoding", status: "IN_PROGRESS", week: "W2", note: "Provider coded and switched off. Turns on when your Google Cloud key is added.", gaps: "Needs the client's Google Cloud API key." },
   { id: "F10", title: "Auto-routing to branch + \"Why this branch\" card", status: "LIVE", week: "W2", note: "Pincode rules win over distance; otherwise the nearest Experience Centre within its radius.", demo: "Demo panel → any scenario → open the lead." },
@@ -96,7 +97,7 @@ export const FEATURES: Feature[] = [
   { id: "F27", title: "Map view (OpenStreetMap)", status: "PREVIEW", week: "W4", note: "Branches, service radius and lead pins.", gaps: "Google Maps switches on with your API key." },
   { id: "F24", title: "WhatsApp two-way team inbox", status: "IN_PROGRESS", week: "W4", note: "Conversation view with simulated customer replies.", gaps: "Needs the WhatsApp Business API connection." },
   { id: "F46", title: "WhatsApp broadcasts to segments", status: "IN_PROGRESS", week: "W4", note: "Segment picker and audience preview; sending is disabled." },
-  { id: "F39", title: "Lead scoring / auto-priority", status: "IN_PROGRESS", week: "W4", note: "Manual Hot / Warm / Cold works today." },
+  { id: "F39", title: "Lead qualification score, auto-priority and qualification gate", status: "IN_PROGRESS", week: "W2", note: "Manual Hot / Warm / Cold works today. Stages already carry the \"needs qualification\" flag; scoring and the gate are Week 2." },
   { id: "F40", title: "Product-based assignment rule", status: "IN_PROGRESS", week: "W4", note: "Toggle visible in Settings, disabled." },
   { id: "F42", title: "Demo control panel", status: "LIVE", week: "W4", note: "Scenario buttons, run reminders, reset demo data. Demo mode only." },
   { id: "F43", title: "Build Status page", status: "LIVE", week: "W4", note: "This page." },
@@ -105,6 +106,17 @@ export const FEATURES: Feature[] = [
   { id: "F36", title: "Post-sale Projects tracker (8 site stages + 5-year warranty)", status: "PREVIEW", week: "BEYOND", note: "Your \"Current Live Projects\" sheet, prototyped.", isAddon: true },
   { id: "F37", title: "Quotation builder", status: "PLANNED", week: "BEYOND", note: "Line items, finishes, PDF. Concept screen.", isAddon: true },
   { id: "F44", title: "Native apps, multiple WhatsApp numbers, billing/GST, AI calling", status: "PLANNED", week: "BEYOND", note: "Possible next phases.", isAddon: true },
+  // ---- Week 1 foundation additions (client meeting, 28 Oct): masters, users & roles ----
+  { id: "F48", title: "Masters: Pipelines & Statuses", status: "LIVE", week: "W1", note: "Admin renames headings, reorders, adds stages (columns), sets colours, Won / Lost, revive date, stale-day nudges. Several pipelines; Turnkey / Full Home is picked automatically by product. Stages holding leads are merged, never deleted.", demo: "Masters → Pipelines & Statuses → rename \"3. Lead Qualified\" → open Pipeline." },
+  { id: "F49", title: "Masters: Sources", status: "LIVE", week: "W1", note: "Add sources (e.g. Housing.com), colours, paid flag, integration keys that map Meta / sheet / website values. Deactivate or merge; unmapped values land on \"Other\" with a warning.", demo: "Masters → Sources → Add source." },
+  { id: "F50", title: "Masters: Products", status: "LIVE", week: "W1", note: "Add products for leads, order them, Meta answer keys. Used by forms, /enquire, filters, reports and pipeline auto-selection.", demo: "Masters → Products." },
+  { id: "F51", title: "Masters: Branches", status: "LIVE", week: "W1", note: "Add / edit Experience Centres with a map pin, service radius, assignment style and pincode rules. Routing uses changes immediately.", demo: "Masters → Branches → Add branch (Thane) → Map → playground \"Thane West\"." },
+  { id: "F52", title: "User management", status: "LIVE", week: "W1", note: "Create users with a role, home branch and extra branches, reports-to, temporary password (changed at first sign-in), deactivate with hand-over of open leads and tasks, last sign-in.", demo: "Masters → Users." },
+  { id: "F53", title: "Roles & permissions", status: "LIVE", week: "W1", note: "Super Admin (locked), Branch Manager, Sales Executive, Online Desk, Management Viewer + your own roles: data scope + 28 permission checkboxes, clone, \"Preview as…\". Nobody can grant more than they have; the last Super Admin is protected.", demo: "Masters → Roles & permissions → Preview as… Vikram." },
+  { id: "F54", title: "Team performance (Super Admin sees every manager)", status: "LIVE", week: "W1", note: "Per branch and person: open leads, new this week, first call within SLA, overdue follow-ups, visits, won, last sign-in, actions today.", demo: "Insights → Team performance." },
+  { id: "F55", title: "Staging link for review", status: "IN_PROGRESS", week: "W1", note: "Deploy-ready for Vercel + Neon; steps in STAGING.md.", gaps: "Needs the Vercel and Neon accounts (or access) to publish the link." },
+  { id: "F56", title: "Rule-based chatbot (website + WhatsApp)", status: "PLANNED", week: "W2", note: "Questions from the Online Desk script, creates and routes the lead. Week 2." },
+  { id: "F57", title: "Masters: Areas & Pincodes, Other lists (budget, possession, property type, BHK)", status: "PLANNED", week: "W2", note: "Comes with qualification in Week 2. Routing already uses the ~90-locality map and branch pincode rules." },
 ];
 
 export function feature(id: string): Feature {

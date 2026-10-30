@@ -510,15 +510,31 @@ Shared UI: `components/master-table.tsx` (search, show inactive, Used by N, drag
 | Chatbot abuse on a public URL | honeypot, 500-char cap, DB rate limit, text-only rendering, TEST channel by default in the console |
 | Vercel Hobby cron once a day → R10/R11 nudges only daily on staging | documented; "Run reminders now"; external pinger option in `STAGING.md` |
 
-## W.9 Phase log (Week 2)
+## W.9 Scope change (2026-10-30) — "finish Week 1 on this branch"
+
+The client's delivery timeline (5 weeks) puts **Week 1 = CRM Foundation: server/database, secure authentication, role permissions, core CRM modules, staging link**; **Week 2 = lead logic & chatbot** (duplicate handling, qualification, chatbot). The user asked to deliver Week 1 now, on this branch, plus "use phone numbers as the primary key so there are no duplicate entries". So this pass delivers 06 §3–5 (masters, users & roles) and the phone key; qualification (06 §6), the duplicates queue/merge UI (06 §7) and the chatbot (06 §8) move to Week 2. Build Status now groups features by the client's 5-week timeline.
+
+### Additional decisions
+
+| # | Decision | Reason |
+|---|---|---|
+| D-W16 | **Phone = the customer's natural key, enforced by the DB — not the literal primary key.** `Contact.phoneE164` is `@unique` (one customer per number) and `Lead.openPhoneKey` (= normalised phone while the lead is open, `null` once Won/Lost) is `@unique`, so the database refuses a second open lead for the same number. Ids stay cuids. | A literal phone PK would break every foreign key when a customer changes number, put phone numbers in every URL and log line (privacy), fail for walk-ins/emails without a phone, and forbid the legitimate "returning customer" case (same person, new enquiry a year later). The unique keys give the same guarantee — no duplicate entries — without those costs. |
+| D-W17 | Repeat **automatic** intake (Meta, website, CSV, scenarios) for a number with an open lead is **added to that lead** (timeline entry "New enquiry via …", products unioned, owner notified) — no second lead. The **manual** form refuses and links to the existing lead; outside the user's scope it says "exists in another branch" and notifies that lead's owner and branch managers. A closed earlier lead → a new lead marked Returning. A race between two intakes is caught by the unique key and retried as a repeat enquiry. | 06 §7.2 "merge into existing" + the client's no-duplicates rule. Supersedes the old `duplicates.policy` setting (LINK / WARN), which allowed two open leads. |
+| D-W18 | Migration keeps existing data: the oldest open lead per number gets the key; demo data never creates two open leads per number (the generator closes a returning customer's earlier lead). | No data loss on staging/local. |
+| D-W19 | `User.designation` is free text for now; the `DESIGNATION` Other list arrives with Other lists in Week 2. | Other lists (`LookupValue`) belong with qualification fields. |
+| D-W20 | Reordering in masters uses up/down arrows, not drag. Stage merges only within the same category (Open → Open, Lost → Lost). A stage holding leads can't change category. | Arrows work on phones and need no new library; same-category merges can't silently close or reopen leads. |
+| D-W21 | `requireUser()` throws (doesn't redirect) so server actions keep returning `{ ok:false }`; the dashboard layout redirects deactivated users to `/login?reason=deactivated`, which signs them out. | `redirect()` inside actions' try/catch would be swallowed. |
+| D-W22 | Imports permission given to Online Desk (it had imports before); Sales Executive keeps `leads.export` (06 §11 step 8 removes it). Automations page needs `automations.manage` (Super Admin by default). | Keep existing behaviour; follow the acceptance script. |
+| D-W23 | No `directUrl` in the schema; migrations run from a machine with the direct Neon URL (STAGING.md). | Adding `directUrl` would break every local command until `DIRECT_URL` exists in `.env`. |
+
+## W.10 Phase log
 
 | Phase | Status | Notes |
 |---|---|---|
-| W0. Audit & plan | ✅ | This section. No code changed. |
-| W1. Masters data layer | ⏳ | |
-| W2. Masters admin UI | ⏳ | |
-| W3. Users & roles | ⏳ | |
-| W4. Qualification | ⏳ | |
-| W5. Duplicates | ⏳ | |
-| W6. Chatbot | ⏳ | |
-| W7. Staging & acceptance | ⏳ | |
+| W0. Audit & plan | ✅ | Sections W.1–W.8. |
+| W1. Masters data layer + access model | ✅ `179dc4b` | Migration `20261030090000_week1_masters_rbac` (hand-ordered; verified on a copy of the local data — every stage/source/role count identical, 251 product links — on an empty DB via `migrate deploy`, and `migrate diff` = no drift). Enums → tables; every enum use refactored (80 files). `lib/auth/*` replaces `lib/access.ts`; JWT = id only. Phone key. 11 demo scenarios + §19 acceptance green. |
+| W2. Masters admin UI | ✅ | Pipelines & Statuses (add/rename/reorder/colour/flags/merge/delete-if-empty, new/duplicate/default pipeline, auto-products), Sources and Products (shared list: search, show inactive, Used by, order, merge, delete-if-unused, keys), Branches (map pin picker, radius, strategy, pincode rules, members). Kanban pipeline switcher. Every change audited before → after. |
+| W3. Users & roles | ✅ | Users (create with temp password + forced change, edit role/home/extra branches/reports-to, reset password, deactivate with reassign/auto-distribute, reactivate, last sign-in), Roles (cards, scope + permission editor, clone, delete-if-unused, Preview as…), Team performance, My account. Anti-escalation guards server-side. |
+| Verified over HTTP (prod build) | ✅ | Worli manager: Pune lead 404; Vikram: WOR/AND/TAR only; Andheri exec: colleague's lead 404; admin pages denied per permission; removing `leads.export` hides the button and 403s the export in the same session; deactivated user redirected on the next request (401 on API); renamed stage heading shows on kanban, reports, filters, dashboard. |
+| W4–W6 (qualification, duplicates queue, chatbot) | ⏳ Week 2 | |
+| Staging | ⏳ | Deploy-ready; STAGING.md. Needs Vercel + Neon access. |

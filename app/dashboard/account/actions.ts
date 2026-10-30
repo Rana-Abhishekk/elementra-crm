@@ -8,7 +8,7 @@ import { writeAudit } from "@/lib/domain/audit";
 
 type Result = { ok: true; message?: string } | { ok: false; error: string };
 
-export const PASSWORD_RULE = "At least 8 characters, with a letter and a number.";
+const PASSWORD_RULE = "At least 8 characters, with a letter and a number.";
 const strong = z.string().min(8, PASSWORD_RULE).regex(/[A-Za-z]/, PASSWORD_RULE).regex(/\d/, PASSWORD_RULE);
 
 export async function changeOwnPasswordAction(input: { current?: string; next: string; confirm: string }): Promise<Result> {
