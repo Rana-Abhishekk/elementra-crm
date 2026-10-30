@@ -12,10 +12,10 @@ The app is deploy-ready. Publishing the staging link needs a Vercel project and 
 ## 2. Apply the schema (from your machine, once per release)
 
 ```bash
-DATABASE_URL="<direct Neon URL>" npx prisma migrate deploy
-DATABASE_URL="<direct Neon URL>" SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... DEMO_MODE=true npm run db:seed
-DATABASE_URL="<direct Neon URL>" npx tsx prisma/seed-demo.ts   # optional: synthetic UAT data
+DATABASE_URL="<direct Neon URL>" npm run staging:db
 ```
+
+`staging:db` = `prisma migrate deploy` → `prisma db seed` (masters, roles, branches, demo users; admin from `SEED_ADMIN_*` in your local `.env`) → demo leads. The `DATABASE_URL` on the command line wins over the one in `.env`, so your local database isn't touched. Re-running it later is safe for migrations and the base seed; the last step **replaces the demo leads**, so for later releases run only `DATABASE_URL="…" npx prisma migrate deploy`.
 
 The migration chain applies cleanly to an empty database (verified with `prisma migrate deploy` on a scratch DB). Migrations run from your machine, not during the Vercel build, so a broken build can't half-migrate staging. The schema has no `directUrl`; the direct URL is only used in these commands.
 
@@ -28,7 +28,7 @@ The migration chain applies cleanly to an empty database (verified with `prisma 
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | Pooled Neon URL (step 1) |
-| `NEXTAUTH_URL` | `https://<your-staging-domain>` |
+| `NEXTAUTH_URL` | `https://<your-project>.vercel.app` (the production URL Vercel shows; add it after the first deploy, then redeploy) |
 | `NEXTAUTH_SECRET` | `openssl rand -base64 32` (new value, not the local one) |
 | `DEMO_MODE` | `true` for UAT (quick-login chips + demo panel; demo panel needs the `demo.use` permission = Super Admin only). Set `false` before real users log in. |
 | `CRON_SECRET` | random string; Vercel Cron sends it as `Authorization: Bearer …` |

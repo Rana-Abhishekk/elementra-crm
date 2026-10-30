@@ -23,7 +23,8 @@
     "cron:dev": "tsx --env-file=.env scripts/cron-dev.ts",
     "dev:all": "concurrently -k -n app,cron -c blue,magenta \"npm:dev\" \"npm:cron:dev\"",
     "db:seed:demo": "tsx --env-file=.env prisma/seed-demo.ts",
-    "demo:acceptance": "tsx --env-file=.env scripts/check-acceptance.ts"
+    "demo:acceptance": "tsx --env-file=.env scripts/check-acceptance.ts",
+    "staging:db": "prisma migrate deploy && prisma db seed && tsx prisma/seed-demo.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
